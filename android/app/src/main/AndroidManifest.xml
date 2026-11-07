@@ -1,0 +1,84 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Instrument the owning APK. A third-party APK cannot instrument the
+         signed system package android; the no-restart flag keeps this UI process
+         from being restarted while the shell-launched operation runs. -->
+    <instrumentation
+        android:name="com.proxyplatform.app.SimCarrierConfigInstrumentation"
+        android:targetPackage="${applicationId}"
+        android:handleProfiling="false"
+        android:functionalTest="false" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!--
+        Android Settings filters this picker by requested permissions. This
+        signature-only permission is intentionally requested so this app is
+        listed; it is not granted to third-party apps. The user-selected
+        OP_MOCK_LOCATION AppOp remains the actual authorization gate.
+    -->
+    <uses-permission
+        android:name="android.permission.ACCESS_MOCK_LOCATION"
+        tools:ignore="ProtectedPermissions,MockLocation" />
+    <!--
+        Only approximate-location permission is declared because Google Play
+        Services requires it for Fused mock APIs. The app never requests real
+        location data; the user must still select this package in Developer options.
+    -->
+    <application
+        android:name=".ProxyPlatformApplication"
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ProxyPlatform"
+        android:usesCleartextTraffic="false">
+
+        <service
+            android:name=".ProxyLocalService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Long-running local proxy routing user-selected device traffic through a user-configured upstream proxy." />
+        </service>
+
+        <!--
+            One-tap connection mode. android:permission + the VpnService
+            intent-filter are what let Android show its single, built-in
+            "Connection request" consent dialog instead of the multi-step
+            Developer options / embedded Wireless ADB pairing flow in advanced mode.
+        -->
+        <service
+            android:name=".ProxyVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".adb.AdbPairingActionReceiver"
+            android:exported="false" />
+
+        <service
+            android:name=".adb.AdbPairingService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+
+    </application>
+</manifest>

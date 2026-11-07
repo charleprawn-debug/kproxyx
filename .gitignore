@@ -1,0 +1,146 @@
+# Backend
+backend/.env
+backend/.env.local
+backend/.env.*.local
+backend/dist/
+backend/node_modules/
+backend/coverage/
+backend/logs/
+backend/*.log
+backend/npm-debug.log*
+backend/.DS_Store
+backend/.idea/
+backend/.vscode/
+
+# Android
+android/.gradle/
+android/.kotlin/
+android/build/
+android/.idea/
+android/*.iml
+android/*.apk
+android/*.abe
+android/*.aab
+android/keystore/
+android/release.jks
+android/local.properties
+android/.DS_Store
+android/captures/
+android/.externalNativeBuild
+android/*/bin/
+android/*/out/
+android/.cxx/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.env.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Database
+*.sql.bak
+*.db
+*.sqlite
+postgres_data/
+redis_data/
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Dependencies
+node_modules/
+.yarn/cache/
+
+# Docker
+.docker/
+*.tar.gz
+
+# Secrets & Keys
+.env
+.env.production
+.env.development
+*.jks
+*.pem
+*.key
+*.crt
+*.pub
+secrets.json
+
+# Certificates
+*.p8
+*.p12
+*.pfx
+
+# Gradle wrapper
+!gradle/wrapper/gradle-wrapper.jar
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE settings
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Git
+.git/
+.gitattributes
+
+# CI/CD
+.github/workflows/*.log
+.circleci/.cache/
+.travis/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Package managers
+package-lock.json.bak
+yarn.lock.bak
+gradle.properties.bak
+
+# Generated files
+*.generated.ts
+*.generated.kt
+
+# Analytics
+segment.properties
+
+# Sensitive data patterns
+**/secret*
+**/password*
+**/token*
+**/key*
+**/*credentials*
+**/.auth/

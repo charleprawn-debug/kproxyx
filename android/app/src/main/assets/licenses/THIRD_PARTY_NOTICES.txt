@@ -1,0 +1,10 @@
+Third-party notice
+
+NRFR (Ackites/Nrfr)
+Source: https://github.com/Ackites/Nrfr
+License: Apache License, Version 2.0; see NRFR-LICENSE.txt.
+
+The country and carrier preset data and the CarrierConfig behavior in this
+application are adapted from NRFR. Labels and UI were adapted for this app.
+The Shizuku transport is not included: calls are made from an in-app Android
+Instrumentation process launched through the app's embedded Wireless ADB.
