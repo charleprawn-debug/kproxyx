@@ -50,9 +50,20 @@ router.post('/users/:id/grant-plan', async (req, res) => {
   const planId = String(req.body?.planId ?? '');
   if (!planId) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'planId is required' } });
   const days = Math.min(Math.max(Number(req.body?.days ?? 30), 1), 3650);
+  const { data: plan } = await supabaseAdmin.from('subscription_plans').select('id,is_active').eq('id', planId).maybeSingle();
+  if (!plan || !plan.is_active) return res.status(404).json({ error: { code: 'PLAN_NOT_FOUND', message: 'Subscription plan not found or inactive' } });
   const { data, error } = await supabaseAdmin.from('subscriptions').insert({ user_id: req.params.id, product_id: null, subscription_plan_id: planId, status: 'active', duration_type: 'custom', started_at: new Date().toISOString(), expires_at: new Date(Date.now() + days * 86400000).toISOString(), auto_renew: false, will_renew: false }).select('*').single();
   if (error) return res.status(400).json({ error: { code: 'PLAN_GRANT_FAILED', message: error.message } });
   return res.status(201).json({ data });
+});
+
+router.get('/users/:id/access', async (req, res) => {
+  const [{ data: grants, error: grantsError }, { data: subscriptions, error: subscriptionsError }] = await Promise.all([
+    supabaseAdmin.from('user_feature_grants').select('feature_key,enabled,expires_at').eq('user_id', req.params.id),
+    supabaseAdmin.from('subscriptions').select('id,status,started_at,expires_at,subscription_plan_id,subscription_plans(id,name,feature_flags)').eq('user_id', req.params.id).order('created_at', { ascending: false }).limit(20),
+  ]);
+  if (grantsError || subscriptionsError) return res.status(500).json({ error: { code: 'USER_ACCESS_UNAVAILABLE', message: 'Could not load user access' } });
+  return res.json({ data: { grants: grants ?? [], subscriptions: subscriptions ?? [] } });
 });
 
 router.post('/users/:id/feature', async (req, res) => {
@@ -61,6 +72,16 @@ router.post('/users/:id/feature', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('user_feature_grants').upsert({ user_id: req.params.id, feature_key: feature, enabled: req.body?.enabled !== false, expires_at: req.body?.expiresAt ?? null, granted_by: req.user!.id }, { onConflict: 'user_id,feature_key' }).select('*').single();
   if (error) return res.status(400).json({ error: { code: 'FEATURE_GRANT_FAILED', message: error.message } });
   return res.json({ data });
+});
+
+router.put('/users/:id/features', async (req, res) => {
+  const requested = req.body?.features;
+  if (!requested || typeof requested !== 'object') return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'features object is required' } });
+  const expiresAt = typeof req.body?.expiresAt === 'string' && req.body.expiresAt ? req.body.expiresAt : null;
+  const results = await Promise.all(featureKeys.map((feature) => supabaseAdmin.from('user_feature_grants').upsert({ user_id: req.params.id, feature_key: feature, enabled: requested[feature] === true, expires_at: expiresAt, granted_by: req.user!.id }, { onConflict: 'user_id,feature_key' }).select('feature_key,enabled,expires_at').single()));
+  const failed = results.find((result) => result.error);
+  if (failed?.error) return res.status(400).json({ error: { code: 'FEATURES_UPDATE_FAILED', message: failed.error.message } });
+  return res.json({ data: results.map((result) => result.data) });
 });
 
 router.get('/plans', async (_req, res) => {
@@ -86,12 +107,27 @@ router.post('/subscription-plans', async (req, res) => {
 });
 
 router.patch('/subscription-plans/:id', async (req, res) => {
-  const allowed = ['name', 'description', 'price', 'currency', 'duration_days', 'feature_flags', 'is_active', 'is_featured', 'sort_order'];
-  const patch = Object.fromEntries(Object.entries(req.body ?? {}).filter(([key]) => allowed.includes(key)));
+  const body = req.body ?? {};
+  const patch: Record<string, unknown> = {};
+  if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim();
+  if (typeof body.description === 'string') patch.description = body.description.trim();
+  if (body.price !== undefined && Number.isFinite(Number(body.price)) && Number(body.price) >= 0) patch.price = Number(body.price);
+  if (typeof body.currency === 'string' && /^[A-Za-z]{3}$/.test(body.currency)) patch.currency = body.currency.toUpperCase();
+  if (body.durationDays !== undefined && Number.isInteger(Number(body.durationDays)) && Number(body.durationDays) > 0) patch.duration_days = Number(body.durationDays);
+  if (body.featureFlags && typeof body.featureFlags === 'object') patch.feature_flags = Object.fromEntries(featureKeys.map((key) => [key, body.featureFlags[key] === true]));
+  if (typeof body.isActive === 'boolean') patch.is_active = body.isActive;
+  if (typeof body.isFeatured === 'boolean') patch.is_featured = body.isFeatured;
+  if (body.sortOrder !== undefined && Number.isInteger(Number(body.sortOrder))) patch.sort_order = Number(body.sortOrder);
   if (!Object.keys(patch).length) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'No editable fields supplied' } });
   const { data, error } = await supabaseAdmin.from('subscription_plans').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', req.params.id).select('*').single();
   if (error) return res.status(400).json({ error: { code: 'SUBSCRIPTION_PLAN_UPDATE_FAILED', message: error.message } });
   return res.json({ data });
+});
+
+router.delete('/subscription-plans/:id', async (req, res) => {
+  const { error } = await supabaseAdmin.from('subscription_plans').delete().eq('id', req.params.id);
+  if (error) return res.status(409).json({ error: { code: 'SUBSCRIPTION_PLAN_DELETE_FAILED', message: 'لا يمكن حذف باقة مستخدمة باشتراكات سابقة. عطّلها بدلًا من حذفها.' } });
+  return res.status(204).send();
 });
 
 router.post('/plans', async (req, res) => {
