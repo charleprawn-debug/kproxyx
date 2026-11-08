@@ -1,4 +1,3 @@
-import config from '../config';
 import { supabaseAdmin } from '../utils/supabase';
 import encryptionService from '../utils/encryption';
 
@@ -24,15 +23,15 @@ export async function getPaymentSettings(): Promise<PaymentSettings> {
   const values = await read();
   return {
     oxapay: {
-      apiBase: (values.payment_oxapay_api_base || config.payments.oxapay.baseUrl).replace(/\/$/, ''),
-      merchantKey: values.payment_oxapay_merchant_key || config.payments.oxapay.merchantKey,
-      webhookUrl: values.payment_oxapay_webhook_url || config.payments.oxapay.webhookUrl,
-      feePaidByPayer: values.payment_oxapay_fee_paid_by_payer ? ['true', '1', 'yes'].includes(values.payment_oxapay_fee_paid_by_payer.toLowerCase()) : config.payments.oxapay.feePaidByPayer,
+      apiBase: (values.payment_oxapay_api_base ?? 'https://api.oxapay.com/v1').replace(/\/$/, ''),
+      merchantKey: values.payment_oxapay_merchant_key ?? '',
+      webhookUrl: values.payment_oxapay_webhook_url ?? '',
+      feePaidByPayer: values.payment_oxapay_fee_paid_by_payer ? ['true', '1', 'yes'].includes(values.payment_oxapay_fee_paid_by_payer.toLowerCase()) : false,
     },
     syria: {
-      apiBase: values.payment_syria_api_base || config.payments.syria.baseUrl,
-      token: values.payment_syria_token || config.payments.syria.token,
-      query: values.payment_syria_query || config.payments.syria.query,
+      apiBase: values.payment_syria_api_base ?? '',
+      token: values.payment_syria_token ?? '',
+      query: values.payment_syria_query ?? '',
     },
   };
 }
