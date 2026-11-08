@@ -50,7 +50,7 @@ DECLARE
   plan public.subscription_plans;
   wallet public.wallets;
   sub_id UUID;
-  balance NUMERIC;
+  wallet_balance NUMERIC;
   is_free_claim BOOLEAN := FALSE;
   duration_minutes INTEGER;
 BEGIN
@@ -69,13 +69,13 @@ BEGIN
       RETURNING id INTO sub_id;
       INSERT INTO public.subscription_plan_claims(user_id, plan_id, subscription_id) VALUES (p_user_id, p_plan_id, sub_id);
       INSERT INTO public.wallets(user_id) VALUES (p_user_id) ON CONFLICT (user_id) DO NOTHING;
-      SELECT balance INTO balance FROM public.wallets WHERE user_id = p_user_id;
-      RETURN QUERY SELECT TRUE, 'Free access activated'::TEXT, sub_id, balance, TRUE, duration_minutes;
+      SELECT w.balance INTO wallet_balance FROM public.wallets AS w WHERE w.user_id = p_user_id;
+      RETURN QUERY SELECT TRUE, 'Free access activated'::TEXT, sub_id, wallet_balance, TRUE, duration_minutes;
       RETURN;
     ELSIF plan.price = 0 THEN
       INSERT INTO public.wallets(user_id) VALUES (p_user_id) ON CONFLICT (user_id) DO NOTHING;
-      SELECT balance INTO balance FROM public.wallets WHERE user_id = p_user_id;
-      RETURN QUERY SELECT FALSE, 'This free plan has already been claimed'::TEXT, NULL::UUID, balance, FALSE, 0;
+      SELECT w.balance INTO wallet_balance FROM public.wallets AS w WHERE w.user_id = p_user_id;
+      RETURN QUERY SELECT FALSE, 'This free plan has already been claimed'::TEXT, NULL::UUID, wallet_balance, FALSE, 0;
       RETURN;
     END IF;
   END IF;
@@ -89,10 +89,10 @@ BEGIN
   INSERT INTO public.subscriptions(user_id, product_id, subscription_plan_id, status, duration_type, started_at, expires_at, auto_renew, will_renew)
   VALUES (p_user_id, NULL, p_plan_id, 'active', 'custom', NOW(), NOW() + make_interval(days => plan.duration_days), FALSE, FALSE)
   RETURNING id INTO sub_id;
-  UPDATE public.wallets SET balance = balance - plan.price, updated_at = NOW() WHERE id = wallet.id RETURNING balance INTO balance;
+  UPDATE public.wallets AS w SET balance = w.balance - plan.price, updated_at = NOW() WHERE w.id = wallet.id RETURNING w.balance INTO wallet_balance;
   INSERT INTO public.wallet_transactions(user_id, amount, balance_after, transaction_type, description, reference_id)
-  VALUES (p_user_id, -plan.price, balance, 'plan_purchase', 'Subscription plan purchase', sub_id);
-  RETURN QUERY SELECT TRUE, 'Subscription plan activated'::TEXT, sub_id, balance, FALSE, 0;
+  VALUES (p_user_id, -plan.price, wallet_balance, 'plan_purchase', 'Subscription plan purchase', sub_id);
+  RETURN QUERY SELECT TRUE, 'Subscription plan activated'::TEXT, sub_id, wallet_balance, FALSE, 0;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.cancel_plan_subscriptions(p_plan_id UUID)

@@ -54,6 +54,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
         val username = intent?.getStringExtra(EXTRA_USERNAME)?.trim().orEmpty()
         val password = intent?.getStringExtra(EXTRA_PASSWORD).orEmpty()
         val includeMockLocationInbound = intent?.getBooleanExtra(EXTRA_MOCK_LOCATION_INBOUND, false) ?: false
+        val blockWebRtc = intent?.getBooleanExtra(EXTRA_BLOCK_WEBRTC, false) ?: false
 
         if (host.isBlank() || port !in 1..65535 || protocol !in setOf("http", "socks", "socks5")) {
             AdvancedOperationLog.error(this, "بيانات upstream لنفق VPN غير صالحة؛ لا تُسجّل بيانات الاعتماد.")
@@ -78,6 +79,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
                 username,
                 password,
                 includeMockLocationInbound,
+                blockWebRtc,
             )
             val server = CommandServer(this, TunPlatformInterface(this))
             server.start()
@@ -268,6 +270,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
         const val EXTRA_USERNAME = "username"
         const val EXTRA_PASSWORD = "password"
         const val EXTRA_MOCK_LOCATION_INBOUND = "include_mock_location_inbound"
+        const val EXTRA_BLOCK_WEBRTC = "block_webrtc"
         const val MOCK_LOCATION_PROXY_PORT = 10809
         const val PREFS = "proxy_vpn_tun"
         const val KEY_RUNNING = "running"
@@ -293,6 +296,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
             username: String,
             password: String,
             includeMockLocationInbound: Boolean = false,
+            blockWebRtc: Boolean = false,
         ) {
             val intent = Intent(context, ProxyVpnService::class.java).apply {
                 action = ACTION_START
@@ -302,6 +306,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
                 putExtra(EXTRA_USERNAME, username)
                 putExtra(EXTRA_PASSWORD, password)
                 putExtra(EXTRA_MOCK_LOCATION_INBOUND, includeMockLocationInbound)
+                putExtra(EXTRA_BLOCK_WEBRTC, blockWebRtc)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
         }

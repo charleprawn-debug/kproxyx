@@ -1229,6 +1229,7 @@ class MainActivity : ComponentActivity() {
                 username,
                 password,
                 includeMockLocationInbound = mockLocation && locationMode == "auto",
+                blockWebRtc = blockWebRtc,
             )
         }.onFailure {
             starting = false
@@ -1372,7 +1373,18 @@ class MainActivity : ComponentActivity() {
             }
 
             checkingEndpoint = false
-            if (mode == "vpn") requestStartVpn() else requestStartAdvanced()
+            if (mode == "vpn") {
+                requestStartVpn()
+            } else if (blockWebRtc) {
+                // The local Android system-proxy mode cannot intercept direct
+                // UDP sockets used by WebRTC. Switch to the TUN implementation
+                // so the enabled protection is real rather than cosmetic.
+                AdvancedOperationLog.info(context, "حجب WebRTC مفعّل؛ تحويل الوضع المتقدم إلى نفق VPN لحجب UDP خارج البروكسي.")
+                mode = "vpn"
+                requestStartVpn()
+            } else {
+                requestStartAdvanced()
+            }
         }
     }
 
@@ -1403,7 +1415,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    if (mode == "advanced" && !wirelessReady) {
+    if (mode == "advanced" && !blockWebRtc && !wirelessReady) {
         AdbRequiredPanel(
             modifier = Modifier.fillMaxSize().padding(padding),
             title = "البروكسي المتقدم",

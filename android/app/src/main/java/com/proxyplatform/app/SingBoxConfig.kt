@@ -81,6 +81,7 @@ object SingBoxConfig {
         username: String,
         password: String,
         includeMockLocationInbound: Boolean = false,
+        blockWebRtc: Boolean = true,
     ): File {
         val outbound = JSONObject()
             .put("type", if (protocol == "socks5") "socks" else protocol)
@@ -138,9 +139,14 @@ object SingBoxConfig {
                 // DNS from Android's TUN must be handled by sing-box. Without
                 // this rule it can be sent as raw UDP through an HTTP proxy,
                 // which cannot carry UDP and leaves every app without DNS.
-                .put("rules", JSONArray().put(JSONObject()
-                    .put("port", 53)
-                    .put("action", "hijack-dns")))
+                .put("rules", JSONArray().apply {
+                    put(JSONObject().put("port", 53).put("action", "hijack-dns"))
+                    // A TUN is required for reliable WebRTC protection. Reject
+                    // every UDP flow when protection is enabled; limiting the
+                    // rule to STUN ports still allows browsers to discover a
+                    // host-candidate or use a non-standard TURN port.
+                    if (blockWebRtc) put(JSONObject().put("network", "udp").put("action", "reject"))
+                })
                 // sing-box's generic auto_detect_interface is not supported
                 // on Android. The VpnService adapter protects sing-box's
                 // outbound sockets through autoDetectInterfaceControl instead.
