@@ -15,10 +15,10 @@ jobs:
     name: KProxyX API smoke test
     runs-on: ubuntu-latest
     steps:
-      - name: Verify liveness
-        run: curl --fail --silent --show-error https://api.kun.publicvm.com:10059/livez
-      - name: Verify readiness
-        run: curl --fail --silent --show-error https://api.kun.publicvm.com:10059/readyz
+      - name: Verify API health
+        run: curl --fail --silent --show-error https://api.kun.publicvm.com:10059/api/health
+      - name: Verify API health again
+        run: curl --fail --silent --show-error https://api.kun.publicvm.com:10059/api/health
       - name: Verify products contract
         run: curl --fail --silent --show-error https://api.kun.publicvm.com:10059/api/v1/products
 
