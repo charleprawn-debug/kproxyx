@@ -114,7 +114,7 @@ internal data class RemoteProxy(val id: String, val protocol: String, val host: 
 internal data class PurchasedProxy(val protocol: String, val host: String, val port: Int, val username: String, val password: String, val url: String, val expiresAt: String)
 internal data class Profile(val email: String, val name: String, val role: String, val verified: Boolean)
 internal data class Subscription(val status: String, val expires: String, val product: String, val protocol: String)
-internal data class Plan(val id: String, val name: String, val description: String, val monthly: String, val duration: String, val features: Set<String>, val featured: Boolean)
+internal data class Plan(val id: String, val name: String, val description: String, val monthly: String, val duration: String, val features: Set<String>, val featured: Boolean, val freeClaimOnce: Boolean = false, val freeDurationMinutes: Int = 0)
 internal data class Wallet(val balance: Double, val currency: String)
 internal data class WalletTransaction(val amount: Double, val description: String, val type: String, val createdAt: String)
 internal data class TopUpMethod(val code: String, val name: String, val currency: String, val network: String, val address: String, val minAmount: Double, val exchangeRate: Double, val instructions: String)
@@ -274,7 +274,7 @@ internal class ApiClient(context: Context) {
     }
     fun profile(): Profile { val x = request("/me").getJSONObject("data"); return Profile(x.optString("email"), x.optString("full_name", "بدون اسم"), x.optString("role", "user"), x.optBoolean("is_email_verified")) }
     fun subscriptions(): List<Subscription> { val a = request("/me/subscriptions").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val p = x.optJSONObject("subscription_plans") ?: x.optJSONObject("proxy_products"); Subscription(x.optString("status"), x.optString("expires_at"), p?.optString("name", "الاشتراك") ?: "الاشتراك", p?.optString("protocol", "اشتراك") ?: "اشتراك") } }
-    fun plans(): List<Plan> { val a = request("/me/subscription-plans").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val flags = x.optJSONObject("feature_flags"); val features = listOf("advanced", "sim", "vpn", "mock_location").filter { flags?.optBoolean(it, false) == true }.toSet(); Plan(x.getString("id"), x.optString("name"), x.optString("description"), formatProductPrice(x.optDouble("price", Double.NaN), x.optInt("duration_days", 30).toString() + " يوم"), x.optInt("duration_days", 30).toString() + " يوم", features, x.optBoolean("is_featured")) } }
+    fun plans(): List<Plan> { val a = request("/me/subscription-plans").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val flags = x.optJSONObject("feature_flags"); val features = listOf("advanced", "sim", "vpn", "mock_location").filter { flags?.optBoolean(it, false) == true }.toSet(); Plan(x.getString("id"), x.optString("name"), x.optString("description"), formatProductPrice(x.optDouble("price", Double.NaN), x.optInt("duration_days", 30).toString() + " يوم"), x.optInt("duration_days", 30).toString() + " يوم", features, x.optBoolean("is_featured"), x.optBoolean("free_claim_once"), x.optInt("free_duration_minutes", 0)) } }
     fun wallet(): Wallet { val x = request("/me/wallet").getJSONObject("data"); return Wallet(x.optDouble("balance", 0.0), x.optString("currency", "USD")) }
     fun walletTransactions(): List<WalletTransaction> { val a = request("/me/wallet/transactions").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); WalletTransaction(x.optDouble("amount", 0.0), x.optString("description"), x.optString("transaction_type"), x.optString("created_at")) } }
     fun topUpMethods(): List<TopUpMethod> { val a = request("/me/wallet/top-up/methods").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); TopUpMethod(x.optString("code"), x.optString("name"), x.optString("currency"), x.optString("network"), x.optString("address"), x.optDouble("min_amount", 0.0), x.optDouble("exchange_rate", 1.0), x.optString("instructions")) } }
@@ -283,12 +283,22 @@ internal class ApiClient(context: Context) {
     fun verifyTopUp(id: String, reference: String): TopUpRequest { val x = request("/me/wallet/top-up/requests/$id/verify", "POST", JSONObject().put("transactionReference", reference)).getJSONObject("data"); return TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) }
     fun featureAccess(): FeatureAccess { val x = request("/me/access").getJSONObject("data"); return FeatureAccess(x.optBoolean("advanced"), x.optBoolean("sim"), x.optBoolean("vpn"), x.optBoolean("mock_location")) }
     fun activatePlan(id: String) { request("/me/subscription-plans/$id/activate", "POST", JSONObject()) }
+    fun savedProxies(): List<SavedProxy> {
+        val a = request("/me/saved-proxies").getJSONArray("data")
+        return (0 until a.length()).map { i -> val x = a.getJSONObject(i); SavedProxy(x.optString("id"), x.optString("name"), x.optString("protocol", "socks5"), x.optString("host"), x.optInt("port"), x.optBoolean("authenticationRequired"), x.optString("username"), x.optString("password"), x.optBoolean("selected")) }
+    }
+    fun saveSavedProxy(profile: SavedProxy): SavedProxy {
+        val x = request("/me/saved-proxies", "POST", JSONObject().put("id", profile.id).put("name", profile.name).put("protocol", profile.protocol).put("host", profile.host).put("port", profile.port).put("authenticationRequired", profile.authenticationRequired).put("username", profile.username).put("password", profile.password)).getJSONObject("data")
+        return SavedProxy(x.optString("id", profile.id), x.optString("name", profile.name), x.optString("protocol", profile.protocol), x.optString("host", profile.host), x.optInt("port", profile.port), x.optBoolean("authenticationRequired", profile.authenticationRequired), x.optString("username", profile.username), x.optString("password", profile.password), x.optBoolean("selected", true))
+    }
+    fun deleteSavedProxy(id: String) { request("/me/saved-proxies/$id", "DELETE") }
+    fun selectSavedProxy(id: String) { request("/me/saved-proxies/$id/select", "POST", JSONObject()) }
     fun loggedIn() = store.accessToken != null
     fun logout() = store.clear()
 }
 
-internal class AppViewModel(private val api: ApiClient) : ViewModel() {
-    var loggedIn by mutableStateOf(api.loggedIn()); private set
+internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
+    var loggedIn by mutableStateOf(apiClient.loggedIn()); private set
     var loading by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
 
@@ -362,7 +372,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         error = null
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                api.login(email, password)
+                apiClient.login(email, password)
                 withContext(Dispatchers.Main) {
                     loggedIn = true
                     loading = false
@@ -381,7 +391,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         error = null
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                api.register(email, password, name)
+                apiClient.register(email, password, name)
                 withContext(Dispatchers.Main) {
                     loading = false
                     error = "تم إنشاء الحساب. سجّل الدخول للمتابعة."
@@ -399,7 +409,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun loadMarketplaceProviders() = viewModelScope.launch {
         if (marketplaceProvidersLoading || marketplaceProviders.isNotEmpty()) return@launch
         marketplaceProvidersLoading = true; marketplaceProvidersError = null
-        try { marketplaceProviders = withContext(Dispatchers.IO) { api.marketplaceProviders() } }
+        try { marketplaceProviders = withContext(Dispatchers.IO) { apiClient.marketplaceProviders() } }
         catch (failure: Exception) { marketplaceProvidersError = failure.message ?: "تعذر تحميل مزودي السوق." }
         finally { marketplaceProvidersLoading = false }
     }
@@ -409,21 +419,21 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     // plan selected by the user instead of keeping the default plan's locations.
     fun loadPurchaseOptionsFor(provider: String, serviceId: String = "", planId: String = "") = viewModelScope.launch {
         purchaseLoading = true; purchaseError = null; purchaseQuote = null; purchaseOptions = null
-        try { purchaseOptions = withContext(Dispatchers.IO) { api.proxyPurchaseOptions(provider, serviceId, planId) } }
+        try { purchaseOptions = withContext(Dispatchers.IO) { apiClient.proxyPurchaseOptions(provider, serviceId, planId) } }
         catch (failure: Exception) { purchaseError = failure.message ?: "تعذر تحميل خيارات الشراء." }
         finally { purchaseLoading = false }
     }
 
     fun loadProxyQuote(options: ProxyPurchaseOptions, plan: ProxyPurchasePlan, location: ProxyPurchaseLocation) = viewModelScope.launch {
         purchaseQuote = null
-        try { purchaseQuote = withContext(Dispatchers.IO) { api.proxyQuote(options, plan, location) } }
+        try { purchaseQuote = withContext(Dispatchers.IO) { apiClient.proxyQuote(options, plan, location) } }
         catch (failure: Exception) { purchaseError = failure.message ?: "تعذر حساب السعر." }
     }
 
     fun loadPurchaseOptions() = viewModelScope.launch {
         if (purchaseOptions != null || purchaseLoading) return@launch
         purchaseLoading = true; purchaseError = null
-        try { purchaseOptions = withContext(Dispatchers.IO) { api.proxyPurchaseOptions(selectedMarketplaceProvider) } }
+        try { purchaseOptions = withContext(Dispatchers.IO) { apiClient.proxyPurchaseOptions(selectedMarketplaceProvider) } }
         catch (failure: Exception) { purchaseError = failure.message ?: "تعذر تحميل خيارات الشراء." }
         finally { purchaseLoading = false }
     }
@@ -431,7 +441,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun loadRemoteProxies() = viewModelScope.launch {
         if (remoteProxiesLoading) return@launch
         remoteProxiesLoading = true; remoteProxiesError = null
-        try { remoteProxies = withContext(Dispatchers.IO) { api.proxies() } }
+        try { remoteProxies = withContext(Dispatchers.IO) { apiClient.proxies() } }
         catch (failure: Exception) { remoteProxiesError = failure.message ?: "تعذر تحميل بروكسياتك." }
         finally { remoteProxiesLoading = false }
     }
@@ -441,7 +451,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         productsLoading = true
         productsError = null
         try {
-            products = withContext(Dispatchers.IO) { api.products() }
+            products = withContext(Dispatchers.IO) { apiClient.products() }
         } catch (failure: Exception) {
             productsError = when {
                 failure.message.orEmpty().contains("Could not load products", ignoreCase = true) ->
@@ -458,7 +468,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun confirmProxyPurchase(options: ProxyPurchaseOptions, plan: ProxyPurchasePlan, location: ProxyPurchaseLocation, username: String, password: String, onSuccess: (PurchasedProxy) -> Unit) = viewModelScope.launch {
         purchaseLoading = true; purchaseError = null
         try {
-            val result = withContext(Dispatchers.IO) { api.purchaseProxy(options, plan, location, username, password) }
+            val result = withContext(Dispatchers.IO) { apiClient.purchaseProxy(options, plan, location, username, password) }
             purchasedProxy = result; purchaseOptions = null; onSuccess(result)
         } catch (failure: Exception) { purchaseError = failure.message ?: "تعذر إتمام شراء البروكسي." }
         finally { purchaseLoading = false }
@@ -472,7 +482,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         profileLoading = true
         profileError = null
         try {
-            profile = withContext(Dispatchers.IO) { api.profile() }
+            profile = withContext(Dispatchers.IO) { apiClient.profile() }
             profileLoaded = true
         } catch (failure: Exception) {
             profileError = failure.message ?: "تعذر تحميل بيانات الحساب. أعد المحاولة."
@@ -486,7 +496,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         subscriptionsLoading = true
         subscriptionsError = null
         try {
-            subscriptions = withContext(Dispatchers.IO) { api.subscriptions() }
+            subscriptions = withContext(Dispatchers.IO) { apiClient.subscriptions() }
             subscriptionsLoaded = true
         } catch (failure: Exception) {
             subscriptionsError = failure.message ?: "تعذر تحميل الاشتراكات. أعد المحاولة."
@@ -508,7 +518,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         if (shouldLoadAccess) accessError = null
         supervisorScope {
             if (shouldLoadPlans) launch(Dispatchers.IO) {
-                val result = runCatching { api.plans() }
+                val result = runCatching { apiClient.plans() }
                 withContext(Dispatchers.Main) {
                     result.onSuccess { plans = it; plansLoaded = true }
                         .onFailure { plansError = it.message ?: "تعذر تحميل الخطط." }
@@ -516,7 +526,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
                 }
             }
             if (shouldLoadWallet) launch(Dispatchers.IO) {
-                val result = runCatching { api.wallet() }
+                val result = runCatching { apiClient.wallet() }
                 withContext(Dispatchers.Main) {
                     result.onSuccess { wallet = it; walletLoaded = true }
                         .onFailure { walletError = it.message ?: "تعذر تحميل الرصيد." }
@@ -524,7 +534,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
                 }
             }
             if (shouldLoadAccess) launch(Dispatchers.IO) {
-                val result = runCatching { api.featureAccess() }
+                val result = runCatching { apiClient.featureAccess() }
                 withContext(Dispatchers.Main) {
                     result.onSuccess { access = it; accessLoaded = true }
                         .onFailure { accessError = it.message ?: "تعذر التحقق من صلاحيات الحساب." }
@@ -537,7 +547,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun refreshAccess() = viewModelScope.launch(Dispatchers.IO) {
         withContext(Dispatchers.Main) { accessLoading = true; accessError = null }
         try {
-            val result = api.featureAccess()
+            val result = apiClient.featureAccess()
             withContext(Dispatchers.Main) { access = result; accessLoaded = true }
         } catch (failure: Exception) {
             withContext(Dispatchers.Main) { accessError = failure.message ?: "تعذر التحقق من صلاحيات الحساب." }
@@ -553,9 +563,9 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         try {
             val (transactionsResult, methodsResult, requestsResult) = withContext(Dispatchers.IO) {
                 supervisorScope {
-                    val transactionsCall = async { runCatching { api.walletTransactions() } }
-                    val methodsCall = async { runCatching { api.topUpMethods() } }
-                    val requestsCall = async { runCatching { api.topUpRequests() } }
+                    val transactionsCall = async { runCatching { apiClient.walletTransactions() } }
+                    val methodsCall = async { runCatching { apiClient.topUpMethods() } }
+                    val requestsCall = async { runCatching { apiClient.topUpRequests() } }
                     Triple(transactionsCall.await(), methodsCall.await(), requestsCall.await())
                 }
             }
@@ -576,7 +586,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun createTopUp(method: TopUpMethod, amount: Double) = viewModelScope.launch {
         topUpLoading = true; topUpError = null
         try {
-            topUpCreated = withContext(Dispatchers.IO) { api.createTopUp(method.code, amount) }
+            topUpCreated = withContext(Dispatchers.IO) { apiClient.createTopUp(method.code, amount) }
             loadWalletDetails(force = true)
         }
         catch (failure: Exception) { topUpError = failure.message ?: "تعذر إنشاء طلب الشحن." }
@@ -586,7 +596,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun verifyTopUp(request: TopUpRequest, reference: String, done: () -> Unit) = viewModelScope.launch {
         topUpLoading = true; topUpError = null
         try {
-            withContext(Dispatchers.IO) { api.verifyTopUp(request.id, reference) }
+            withContext(Dispatchers.IO) { apiClient.verifyTopUp(request.id, reference) }
             topUpCreated = null
             loadWalletDetails(force = true)
             loadPlansAndWallet(force = true)
@@ -603,7 +613,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         activatingPlanId = plan.id
         activationError = null
         try {
-            withContext(Dispatchers.IO) { api.activatePlan(plan.id) }
+            withContext(Dispatchers.IO) { apiClient.activatePlan(plan.id) }
             access = access.copy(
                 advanced = access.advanced || "advanced" in plan.features,
                 sim = access.sim || "sim" in plan.features,
@@ -621,7 +631,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     }
 
     fun logout() {
-        api.logout()
+        apiClient.logout()
         loggedIn = false
         products = emptyList()
         productsError = null
@@ -683,6 +693,7 @@ class MainActivity : ComponentActivity() {
     vpnAllowed: Boolean,
     advancedAllowed: Boolean,
     onGoToAdb: () -> Unit,
+    api: ApiClient,
 ) {
     val context = LocalContext.current
     val locationController = remember { ProxyLocationController(context) }
@@ -738,6 +749,9 @@ class MainActivity : ComponentActivity() {
             context.getSharedPreferences("advanced_proxy_timezone_options", Context.MODE_PRIVATE)
                 .getBoolean("enabled", false)
         )
+    }
+    var blockWebRtc by remember {
+        mutableStateOf(context.getSharedPreferences("advanced_proxy_webrtc_options", Context.MODE_PRIVATE).getBoolean("enabled", true))
     }
     var matchProxyLanguage by remember {
         mutableStateOf(
@@ -832,7 +846,7 @@ class MainActivity : ComponentActivity() {
         username = profile.username
         password = profile.password
         coroutineScope.launch {
-            runCatching { withContext(Dispatchers.IO) { profileStore.select(profile.id) } }
+            runCatching { withContext(Dispatchers.IO) { profileStore.select(profile.id); api.selectSavedProxy(profile.id) } }
                 .onFailure { error = ProxyFailureMessages.savedProxy(it.message, "حفظ اختيار البروكسي") }
         }
     }
@@ -841,7 +855,7 @@ class MainActivity : ComponentActivity() {
         coroutineScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val saved = profileStore.save(candidate)
+                    val saved = api.saveSavedProxy(profileStore.save(candidate))
                     profileStore.loadAll() to saved
                 }
             }.onSuccess { (profiles, saved) ->
@@ -864,6 +878,7 @@ class MainActivity : ComponentActivity() {
         coroutineScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
+                    api.deleteSavedProxy(profile.id)
                     profileStore.delete(profile.id)
                     profileStore.loadAll()
                 }
@@ -884,8 +899,9 @@ class MainActivity : ComponentActivity() {
         if (!ProxyVpnService.isRunning(context) && !ProxyLocalService.isRunning(context)) {
             ProxyLocationController.recoverStaleFusedMockMode(context)
         }
-        runCatching { withContext(Dispatchers.IO) { profileStore.loadAll() } }
+        runCatching { withContext(Dispatchers.IO) { api.savedProxies().ifEmpty { profileStore.loadAll() } } }
             .onSuccess { profiles ->
+                profiles.forEach { profile -> runCatching { profileStore.save(profile) } }
                 savedProxies = profiles
                 val selectedProfile = profiles.firstOrNull { it.selected } ?: profiles.firstOrNull()
                 if (selectedProfile != null) {
@@ -989,7 +1005,7 @@ class MainActivity : ComponentActivity() {
         ProxyLocalService.clearLastError(context)
         runCatching {
             AdvancedOperationLog.info(context, "إرسال طلب تشغيل خدمة البروكسي المحلي إلى Android.")
-            startLocalProxyService(context, protocol, host, port, username, password)
+            startLocalProxyService(context, protocol, host, port, username, password, blockWebRtc)
         }.onFailure {
             AdvancedOperationLog.exception(context, "تعذر إرسال طلب تشغيل خدمة البروكسي", it)
             starting = false
@@ -1401,6 +1417,19 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Checkbox(
+                            checked = blockWebRtc,
+                            onCheckedChange = { enabled ->
+                                blockWebRtc = enabled
+                                context.getSharedPreferences("advanced_proxy_webrtc_options", Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).apply()
+                                error = null
+                            },
+                            enabled = !running && !starting && !checkingEndpoint && !stopping,
+                        )
+                        Text("حجب WebRTC", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    }
+                    Text("يحجب منافذ STUN/TURN الشائعة داخل مسار sing-box. ملاحظة: تطبيقات WebRTC التي تتجاوز بروكسي النظام قد تحتاج وضع VPN لحجب شامل.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(
                             checked = matchProxyTimezone,
                             onCheckedChange = { enabled ->
                                 matchProxyTimezone = enabled
@@ -1641,7 +1670,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun startLocalProxyService(context: Context, protocol: String, host: String, port: String, username: String, password: String) {
+private fun startLocalProxyService(context: Context, protocol: String, host: String, port: String, username: String, password: String, blockWebRtc: Boolean) {
     val intent = Intent(context, ProxyLocalService::class.java).apply {
         action = ProxyLocalService.ACTION_START
         putExtra(ProxyLocalService.EXTRA_PROTOCOL, protocol)
@@ -1649,6 +1678,7 @@ private fun startLocalProxyService(context: Context, protocol: String, host: Str
         putExtra(ProxyLocalService.EXTRA_PORT, port.toInt())
         putExtra(ProxyLocalService.EXTRA_USERNAME, username)
         putExtra(ProxyLocalService.EXTRA_PASSWORD, password)
+        putExtra(ProxyLocalService.EXTRA_BLOCK_WEBRTC, blockWebRtc)
         putExtra(ProxyLocalService.EXTRA_LOCAL_PORT, ProxyLocalService.DEFAULT_LOCAL_PORT)
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)

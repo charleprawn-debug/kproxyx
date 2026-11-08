@@ -18,13 +18,13 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/subscriptions', async (req, res) => {
-  const { data, error } = await supabaseAdmin.from('subscriptions').select('*,proxy_products(id,name,description,protocol,country_code,country_name,price_monthly,feature_flags),subscription_plans(id,name,description,price,currency,duration_days,feature_flags)').eq('user_id', req.user!.id).order('created_at', { ascending: false });
+  const { data, error } = await supabaseAdmin.from('subscriptions').select('*,proxy_products(id,name,description,protocol,country_code,country_name,price_monthly,feature_flags),subscription_plans(id,name,description,price,currency,duration_days,feature_flags,free_claim_once,free_duration_minutes)').eq('user_id', req.user!.id).order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: { code: 'SUBSCRIPTIONS_UNAVAILABLE', message: 'Could not load subscriptions' } });
   return res.json({ data: data ?? [] });
 });
 
 router.get('/subscription-plans', async (_req, res) => {
-  const { data, error } = await supabaseAdmin.from('subscription_plans').select('id,name,description,price,currency,duration_days,is_active,is_featured,feature_flags').eq('is_active', true).order('is_featured', { ascending: false }).order('sort_order', { ascending: true });
+  const { data, error } = await supabaseAdmin.from('subscription_plans').select('id,name,description,price,currency,duration_days,is_active,is_featured,feature_flags,free_claim_once,free_duration_minutes').eq('is_active', true).order('is_featured', { ascending: false }).order('sort_order', { ascending: true });
   if (error) return res.status(500).json({ error: { code: 'SUBSCRIPTION_PLANS_UNAVAILABLE', message: 'Could not load subscription plans' } });
   return res.json({ data: data ?? [] });
 });
@@ -39,6 +39,50 @@ router.get('/wallet/transactions', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('wallet_transactions').select('id,amount,balance_after,transaction_type,status,description,reference_id,created_at').eq('user_id', req.user!.id).order('created_at', { ascending: false }).limit(100);
   if (error) return res.status(500).json({ error: { code: 'WALLET_HISTORY_UNAVAILABLE', message: 'Could not load wallet history' } });
   return res.json({ data: data ?? [] });
+});
+
+router.get('/saved-proxies', async (req, res) => {
+  const { data, error } = await supabaseAdmin.from('user_saved_proxies').select('id,name,protocol,host,port,auth_required,username_encrypted,password_encrypted,is_selected,created_at,updated_at').eq('user_id', req.user!.id).order('is_selected', { ascending: false }).order('updated_at', { ascending: false });
+  if (error) return res.status(500).json({ error: { code: 'SAVED_PROXIES_UNAVAILABLE', message: 'تعذر تحميل البروكسيات المحفوظة.' } });
+  try {
+    return res.json({ data: (data ?? []).map((row) => ({ id: row.id, name: row.name, protocol: row.protocol, host: row.host, port: row.port, authenticationRequired: row.auth_required, username: row.auth_required ? encryptionService.decrypt(row.username_encrypted) : '', password: row.auth_required ? encryptionService.decrypt(row.password_encrypted) : '', selected: row.is_selected })) });
+  } catch { return res.status(500).json({ error: { code: 'SAVED_PROXY_CREDENTIALS_UNAVAILABLE', message: 'تعذر فك تشفير بيانات البروكسي.' } }); }
+});
+
+router.post('/saved-proxies', async (req, res) => {
+  const name = String(req.body?.name ?? '').trim();
+  const protocol = String(req.body?.protocol ?? '').trim().toLowerCase();
+  const host = String(req.body?.host ?? '').trim();
+  const port = Number(req.body?.port);
+  const authRequired = req.body?.authenticationRequired === true;
+  const username = String(req.body?.username ?? '');
+  const password = String(req.body?.password ?? '');
+  if (!name || name.length > 120 || !['http', 'socks5'].includes(protocol) || !host || host.length > 255 || !Number.isInteger(port) || port < 1 || port > 65535 || (authRequired && (!username || !password))) return res.status(400).json({ error: { code: 'SAVED_PROXY_VALIDATION_FAILED', message: 'بيانات البروكسي غير صالحة.' } });
+  let id = typeof req.body?.id === 'string' && req.body.id ? req.body.id : crypto.randomUUID();
+  if (req.body?.id) {
+    const { data: existing } = await supabaseAdmin.from('user_saved_proxies').select('id,user_id').eq('id', id).maybeSingle();
+    if (existing && existing.user_id !== req.user!.id) id = crypto.randomUUID();
+  }
+  const values = { id, user_id: req.user!.id, name, protocol, host, port, auth_required: authRequired, username_encrypted: encryptionService.encrypt(authRequired ? username : ''), password_encrypted: encryptionService.encrypt(authRequired ? password : ''), is_selected: true, updated_at: new Date().toISOString() };
+  const { error: clearError } = await supabaseAdmin.from('user_saved_proxies').update({ is_selected: false }).eq('user_id', req.user!.id);
+  if (clearError) return res.status(500).json({ error: { code: 'SAVED_PROXY_UPDATE_FAILED', message: 'تعذر تحديث الاختيار الحالي.' } });
+  const { data, error } = await supabaseAdmin.from('user_saved_proxies').upsert(values, { onConflict: 'id' }).select('id,name,protocol,host,port,auth_required,is_selected').single();
+  if (error) return res.status(400).json({ error: { code: 'SAVED_PROXY_SAVE_FAILED', message: 'تعذر حفظ البروكسي.' } });
+  return res.status(201).json({ data: { ...data, authenticationRequired: data.auth_required, username: authRequired ? username : '', password: authRequired ? password : '', selected: data.is_selected } });
+});
+
+router.delete('/saved-proxies/:id', async (req, res) => {
+  const { error } = await supabaseAdmin.from('user_saved_proxies').delete().eq('id', req.params.id).eq('user_id', req.user!.id);
+  if (error) return res.status(400).json({ error: { code: 'SAVED_PROXY_DELETE_FAILED', message: 'تعذر حذف البروكسي المحفوظ.' } });
+  return res.status(204).send();
+});
+
+router.post('/saved-proxies/:id/select', async (req, res) => {
+  const { error: clearError } = await supabaseAdmin.from('user_saved_proxies').update({ is_selected: false }).eq('user_id', req.user!.id);
+  if (clearError) return res.status(500).json({ error: { code: 'SAVED_PROXY_SELECT_FAILED', message: 'تعذر تحديث الاختيار.' } });
+  const { data, error } = await supabaseAdmin.from('user_saved_proxies').update({ is_selected: true, updated_at: new Date().toISOString() }).eq('id', req.params.id).eq('user_id', req.user!.id).select('id').single();
+  if (error || !data) return res.status(404).json({ error: { code: 'SAVED_PROXY_NOT_FOUND', message: 'البروكسي غير موجود.' } });
+  return res.json({ data: { id: data.id, selected: true } });
 });
 
 router.get('/proxies', async (req, res) => {

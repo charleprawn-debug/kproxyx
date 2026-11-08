@@ -319,6 +319,7 @@ internal fun MainShell(vm: AppViewModel) {
                         vpnAllowed = vm.access.vpn,
                         advancedAllowed = vm.access.advanced,
                         onGoToAdb = { screen = Screen.ADB },
+                        api = vm.apiClient,
                     )
                 }
                 Screen.SIM -> AccountFeatureGate(
@@ -591,14 +592,15 @@ private fun PlanCard(plan: Plan, vm: AppViewModel) {
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), border = BorderStroke(if (plan.featured) 2.dp else 1.dp, if (plan.featured) KunPalette.Primary else KunPalette.Border), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Text(plan.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (plan.featured) FeaturePill("مميز", color = KunPalette.Primary, container = MaterialTheme.colorScheme.primaryContainer) }
-            Text(plan.monthly.ifBlank { "السعر غير محدد" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = KunPalette.Primary)
+            Text(if (plan.freeClaimOnce) "مجاني لأول مرة" else plan.monthly.ifBlank { "السعر غير محدد" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = if (plan.freeClaimOnce) KunPalette.Success else KunPalette.Primary)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { val labels = mapOf("advanced" to "الوضع المتقدم", "sim" to "SIM", "vpn" to "VPN", "mock_location" to "محاكاة الموقع"); plan.features.forEach { labels[it]?.let { label -> FeaturePill(label, color = KunPalette.Success, container = KunPalette.SuccessSoft) } } }
             if (plan.description.isNotBlank() || plan.duration.isNotBlank()) ExpandableDetails("تفاصيل الخطة") {
                 if (plan.description.isNotBlank()) Text(plan.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (plan.duration.isNotBlank()) Text("المدة: ${plan.duration}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (plan.duration.isNotBlank()) Text("المدة المدفوعة: ${plan.duration}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (plan.freeClaimOnce) Text("التجربة المجانية: ${if (plan.freeDurationMinutes > 0) "${plan.freeDurationMinutes} دقيقة" else plan.duration}", style = MaterialTheme.typography.bodySmall, color = KunPalette.Success)
             }
             KUNPrimaryButton(
-                text = "تفعيل من رصيد المحفظة",
+                text = if (plan.freeClaimOnce) "تفعيل التجربة المجانية" else "تفعيل من رصيد المحفظة",
                 onClick = { vm.activatePlan(plan) },
                 loading = vm.activatingPlanId == plan.id,
                 enabled = vm.activatingPlanId == null,

@@ -220,7 +220,7 @@ internal fun SavedProxyManagerCard(
             }
 
             Text(
-                "تُحفظ ملفات الاتصال على هذا الجهاز فقط، وتُشفّر بيانات المصادقة بمفتاح Android الآمن.",
+                "تُزامن ملفات الاتصال مع حسابك لتظهر على أجهزتك الأخرى، مع تشفير بيانات المصادقة محليًا وفي الخادم.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

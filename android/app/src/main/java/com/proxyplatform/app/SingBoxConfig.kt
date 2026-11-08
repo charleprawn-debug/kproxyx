@@ -14,6 +14,7 @@ object SingBoxConfig {
         username: String,
         password: String,
         localPort: Int = 10808,
+        blockWebRtc: Boolean = true,
     ): File {
         val outbound = JSONObject()
             .put("type", if (protocol == "socks5") "socks" else protocol)
@@ -51,6 +52,9 @@ object SingBoxConfig {
                 .put(outbound)
                 .put(JSONObject().put("type", "direct").put("tag", "direct")))
             .put("route", JSONObject()
+                .put("rules", JSONArray().apply {
+                    if (blockWebRtc) put(JSONObject().put("network", "udp").put("port", JSONArray().put(3478).put(5349)).put("action", "reject"))
+                })
                 // This is the Android local-proxy mode, not a TUN. Let the
                 // OS route outbound sockets instead of selecting a TUN NIC.
                 .put("auto_detect_interface", false)
