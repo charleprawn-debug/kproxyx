@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -115,6 +116,7 @@ internal data class PurchasedProxy(val protocol: String, val host: String, val p
 internal data class Profile(val email: String, val name: String, val role: String, val verified: Boolean)
 internal data class Subscription(val status: String, val expires: String, val product: String, val protocol: String)
 internal data class Plan(val id: String, val name: String, val description: String, val monthly: String, val duration: String, val features: Set<String>, val featured: Boolean, val freeClaimOnce: Boolean = false, val freeDurationMinutes: Int = 0)
+internal data class AppUpdateState(val required: Boolean, val message: String, val updateUrl: String)
 internal data class Wallet(val balance: Double, val currency: String)
 internal data class WalletTransaction(val amount: Double, val description: String, val type: String, val createdAt: String)
 internal data class TopUpMethod(val code: String, val name: String, val currency: String, val network: String, val address: String, val minAmount: Double, val exchangeRate: Double, val instructions: String)
@@ -282,6 +284,12 @@ internal class ApiClient(context: Context) {
     fun createTopUp(methodCode: String, amount: Double): TopUpRequest { val x = request("/me/wallet/top-up/requests", "POST", JSONObject().put("methodCode", methodCode).put("amount", amount)).getJSONObject("data"); return TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) }
     fun verifyTopUp(id: String, reference: String): TopUpRequest { val x = request("/me/wallet/top-up/requests/$id/verify", "POST", JSONObject().put("transactionReference", reference)).getJSONObject("data"); return TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) }
     fun featureAccess(): FeatureAccess { val x = request("/me/access").getJSONObject("data"); return FeatureAccess(x.optBoolean("advanced"), x.optBoolean("sim"), x.optBoolean("vpn"), x.optBoolean("mock_location")) }
+    fun checkForUpdate(): AppUpdateState {
+        val result = execute("/app-update?versionCode=${BuildConfig.VERSION_CODE}", "GET", null, null)
+        if (result.code !in 200..299) return AppUpdateState(false, "", "")
+        val data = result.body.optJSONObject("data") ?: return AppUpdateState(false, "", "")
+        return AppUpdateState(data.optBoolean("required"), data.optString("message"), data.optString("updateUrl"))
+    }
     fun activatePlan(id: String) { request("/me/subscription-plans/$id/activate", "POST", JSONObject()) }
     fun savedProxies(): List<SavedProxy> {
         val a = request("/me/saved-proxies").getJSONArray("data")
@@ -299,8 +307,25 @@ internal class ApiClient(context: Context) {
 
 internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
     var loggedIn by mutableStateOf(apiClient.loggedIn()); private set
+    var updateCheckComplete by mutableStateOf(false); private set
+    var updateRequired by mutableStateOf(false); private set
+    var updateMessage by mutableStateOf(""); private set
+    var updateUrl by mutableStateOf(""); private set
     var loading by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                val result = runCatching { apiClient.checkForUpdate() }
+                withContext(Dispatchers.Main) {
+                    result.onSuccess { state -> updateRequired = state.required; updateMessage = state.message; updateUrl = state.updateUrl }
+                    updateCheckComplete = true
+                }
+                delay(60_000L)
+            }
+        }
+    }
 
     var products by mutableStateOf<List<Product>>(emptyList()); private set
     var productsLoading by mutableStateOf(false); private set
@@ -682,7 +707,37 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun ProxyPlatformApp(vm: AppViewModel) { CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { if (vm.loggedIn) MainShell(vm) else AuthScreen(vm) } } }
+@Composable private fun ProxyPlatformApp(vm: AppViewModel) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            when {
+                !vm.updateCheckComplete -> UpdateCheckingScreen()
+                vm.updateRequired -> AppUpdateRequiredScreen(vm.updateMessage, vm.updateUrl)
+                vm.loggedIn -> MainShell(vm)
+                else -> AuthScreen(vm)
+            }
+        }
+    }
+}
+
+@Composable private fun UpdateCheckingScreen() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            CircularProgressIndicator(color = KunPalette.Primary)
+            Text("جارٍ التحقق من إصدار التطبيق…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable private fun AppUpdateRequiredScreen(message: String, updateUrl: String) {
+    val context = LocalContext.current
+    val fallbackUrl = "https://kuncloak.work.gd:10059/"
+    Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("يتطلب التطبيق تحديثًا", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = KunPalette.Primary)
+        Text(message.ifBlank { "يتوفر إصدار جديد من التطبيق. حدّث التطبيق للمتابعة." }, modifier = Modifier.padding(top = 14.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl.ifBlank { fallbackUrl }))) }, modifier = Modifier.fillMaxWidth().padding(top = 28.dp), shape = RoundedCornerShape(15.dp)) { Text("تحديث التطبيق", fontWeight = FontWeight.Bold) }
+    }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // Proxy Screen — VPN and advanced local-proxy modes
 // ─────────────────────────────────────────────────────────────────────────────

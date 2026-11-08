@@ -22,6 +22,31 @@ router.put('/landing-settings', async (req, res) => {
   return res.json({ data: { downloadUrl: data.value, updatedAt: data.updated_at } });
 });
 
+router.get('/app-update-settings', async (_req, res) => {
+  const { data, error } = await supabaseAdmin.from('app_settings').select('key,value,updated_at').in('key', ['app_update_enabled', 'app_min_version_code', 'app_update_message', 'app_update_url']);
+  if (error) return res.status(500).json({ error: { code: 'APP_UPDATE_SETTINGS_UNAVAILABLE', message: 'تعذر تحميل إعدادات التحديث.' } });
+  const settings = Object.fromEntries((data ?? []).map((row) => [row.key, row.value]));
+  return res.json({ data: { enabled: settings.app_update_enabled === 'true', minimumVersionCode: Math.max(0, Number(settings.app_min_version_code ?? 0)), message: settings.app_update_message || '', updateUrl: settings.app_update_url || '' } });
+});
+
+router.put('/app-update-settings', async (req, res) => {
+  const enabled = req.body?.enabled === true;
+  const minimumVersionCode = Number(req.body?.minimumVersionCode);
+  const message = typeof req.body?.message === 'string' ? req.body.message.trim().slice(0, 500) : '';
+  const updateUrl = typeof req.body?.updateUrl === 'string' ? req.body.updateUrl.trim() : '';
+  if (!Number.isInteger(minimumVersionCode) || minimumVersionCode < 0 || minimumVersionCode > 2147483647 || !message) return res.status(400).json({ error: { code: 'INVALID_APP_UPDATE_SETTINGS', message: 'أدخل رقم إصدار ورسالة تحديث صحيحة.' } });
+  try { const parsed = new URL(updateUrl); if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid'); } catch { return res.status(400).json({ error: { code: 'INVALID_APP_UPDATE_URL', message: 'أدخل رابط تحديث صحيحًا.' } }); }
+  const rows = [
+    { key: 'app_update_enabled', value: String(enabled) },
+    { key: 'app_min_version_code', value: String(minimumVersionCode) },
+    { key: 'app_update_message', value: message },
+    { key: 'app_update_url', value: updateUrl },
+  ].map((row) => ({ ...row, updated_at: new Date().toISOString() }));
+  const { error } = await supabaseAdmin.from('app_settings').upsert(rows, { onConflict: 'key' });
+  if (error) return res.status(400).json({ error: { code: 'APP_UPDATE_SETTINGS_SAVE_FAILED', message: 'تعذر حفظ إعدادات التحديث.' } });
+  return res.json({ data: { enabled, minimumVersionCode, message, updateUrl } });
+});
+
 router.get('/overview', async (_req, res) => {
   const tables = ['users', 'proxy_products', 'subscriptions', 'orders', 'connection_sessions'] as const;
   const counts = await Promise.all(tables.map(async (table) => { const result = await supabaseAdmin.from(table).select('id', { count: 'exact', head: true }); return [table, result.error ? null : result.count ?? 0] as const; }));

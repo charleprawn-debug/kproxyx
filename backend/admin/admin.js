@@ -7,7 +7,7 @@ const featureCatalog = {
   mock_location: { label: 'محاكاة الموقع', description: 'صلاحية أدوات محاكاة الموقع' },
 };
 let token = localStorage.getItem(tokenKey);
-let state = { users: [], plans: [], landing: { downloadUrl: '' } };
+let state = { users: [], plans: [], landing: { downloadUrl: '' }, appUpdate: { enabled: false, minimumVersionCode: 0, message: '', updateUrl: '' } };
 
 const api = (path, options = {}) => fetch(`/api/v1/admin${path}`, {
   ...options,
@@ -38,8 +38,8 @@ function bindFeatureCards(root) { root.querySelectorAll('input[name="features"]'
 
 async function load() {
   try {
-    const [overview, users, plans, methods, topups, landing] = await Promise.all([api('/overview'), api('/users'), api('/subscription-plans'), api('/top-up-methods'), api('/top-up-requests?status=pending'), api('/landing-settings').catch(() => ({ data: { downloadUrl: '' } }))]);
-    state = { users: users.data || [], plans: plans.data || [], landing: landing.data || { downloadUrl: '' } };
+    const [overview, users, plans, methods, topups, landing, appUpdate] = await Promise.all([api('/overview'), api('/users'), api('/subscription-plans'), api('/top-up-methods'), api('/top-up-requests?status=pending'), api('/landing-settings').catch(() => ({ data: { downloadUrl: '' } })), api('/app-update-settings').catch(() => ({ data: { enabled: false, minimumVersionCode: 0, message: '', updateUrl: '' } }))]);
+    state = { users: users.data || [], plans: plans.data || [], landing: landing.data || { downloadUrl: '' }, appUpdate: appUpdate.data || { enabled: false, minimumVersionCode: 0, message: '', updateUrl: '' } };
     const counts = overview.data.counts || {};
     $('#stats').innerHTML = [
       ['👥', 'إجمالي المستخدمين', counts.users], ['✓', 'الاشتراكات النشطة', overview.data.activeSubscriptions], ['◆', 'خطط الاشتراك', state.plans.length], ['₿', 'طلبات الشحن المعلقة', (topups.data || []).length], ['↗', 'جلسات الاتصال', counts.connection_sessions],
@@ -49,8 +49,10 @@ async function load() {
 }
 
 function renderLandingSettings() {
-  $('#landingSettings').innerHTML = `<div class="toolbar"><div><h2>صفحة الهبوط</h2><span class="muted">تحكم برابط تحميل التطبيق الظاهر للزوار دون تعديل الملفات.</span></div><a class="btn secondary" href="/" target="_blank" rel="noopener">فتح الصفحة</a></div><div class="section-note">سيظهر الرابط مباشرة عند ضغط الزائر على زر «تحميل التطبيق». استخدم رابط APK مباشرًا يبدأ بـ HTTPS قدر الإمكان.</div><label class="field">رابط التحميل المباشر<input id="landingDownloadUrl" class="input" type="url" maxlength="2048" placeholder="https://example.com/app.apk" value="${esc(state.landing.downloadUrl)}"></label><div style="display:flex;justify-content:flex-start;margin-top:18px"><button class="btn" id="saveLandingSettings">حفظ رابط التحميل</button></div>`;
+  const update = state.appUpdate;
+  $('#landingSettings').innerHTML = `<div class="toolbar"><div><h2>صفحة الهبوط والتحديث</h2><span class="muted">تحكم برابط تحميل التطبيق وسياسة التحديث الإجباري.</span></div><a class="btn secondary" href="/" target="_blank" rel="noopener">فتح الصفحة</a></div><div class="section-note">عند تفعيل التحديث الإجباري، أي نسخة رقمها أقل من الحد الأدنى ستتوقف عن العمل وتظهر لها شاشة تحديث فقط.</div><div class="form-grid"><label class="field full">رابط التحميل المباشر<input id="landingDownloadUrl" class="input" type="url" maxlength="2048" placeholder="https://example.com/app.apk" value="${esc(state.landing.downloadUrl)}"></label><div class="field full"><button class="btn" id="saveLandingSettings">حفظ رابط التحميل</button></div><label class="check"><input id="appUpdateEnabled" type="checkbox" ${update.enabled ? 'checked' : ''}> <span>تفعيل التحديث الإجباري</span></label><label class="field">الحد الأدنى لـ versionCode<input id="appMinimumVersionCode" class="input" type="number" min="0" step="1" value="${esc(update.minimumVersionCode)}"></label><label class="field full">رابط التحديث<input id="appUpdateUrl" class="input" type="url" maxlength="2048" placeholder="اتركه مساويًا لرابط APK أو ضع رابطًا مختلفًا" value="${esc(update.updateUrl || state.landing.downloadUrl)}"></label><label class="field full">رسالة التحديث<textarea id="appUpdateMessage" maxlength="500">${esc(update.message || 'يتوفر إصدار جديد من التطبيق. حدّث التطبيق للمتابعة.')}</textarea></label><div class="field full"><button class="btn" id="saveAppUpdateSettings">حفظ إعدادات التحديث</button></div></div>`;
   $('#saveLandingSettings').onclick = () => action(async () => { const downloadUrl = $('#landingDownloadUrl').value.trim(); await api('/landing-settings', { method: 'PUT', body: JSON.stringify({ downloadUrl }) }); await load(); toast('تم تحديث رابط تحميل التطبيق'); });
+  $('#saveAppUpdateSettings').onclick = () => action(async () => { await api('/app-update-settings', { method: 'PUT', body: JSON.stringify({ enabled: $('#appUpdateEnabled').checked, minimumVersionCode: Number($('#appMinimumVersionCode').value), message: $('#appUpdateMessage').value.trim(), updateUrl: $('#appUpdateUrl').value.trim() }) }); await load(); toast('تم حفظ سياسة التحديث'); });
 }
 
 function renderUsers() {

@@ -32,6 +32,15 @@ export function createApp() {
     if (error) return res.json({ data: { downloadUrl: '' }, warning: 'Landing settings migration is pending' });
     return res.json({ data: { downloadUrl: data?.value ?? '' } });
   });
+  app.get('/api/v1/app-update', async (req, res) => {
+    const versionCode = Math.max(0, Number(req.query.versionCode ?? 0));
+    const { data, error } = await supabaseAdmin.from('app_settings').select('key,value').in('key', ['app_update_enabled', 'app_min_version_code', 'app_update_message', 'app_update_url', 'landing_download_url']);
+    if (error) return res.json({ data: { required: false, checkFailed: true } });
+    const settings = Object.fromEntries((data ?? []).map((row) => [row.key, row.value]));
+    const enabled = settings.app_update_enabled === 'true';
+    const minimumVersionCode = Math.max(0, Number(settings.app_min_version_code ?? 0));
+    return res.json({ data: { required: enabled && versionCode < minimumVersionCode, minimumVersionCode, message: settings.app_update_message || 'يتوفر إصدار جديد من التطبيق. حدّث التطبيق للمتابعة.', updateUrl: settings.app_update_url || settings.landing_download_url || 'https://kuncloak.work.gd:10059/' } });
+  });
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/products', productRoutes);
   app.use('/api/v1/me', meRoutes);
