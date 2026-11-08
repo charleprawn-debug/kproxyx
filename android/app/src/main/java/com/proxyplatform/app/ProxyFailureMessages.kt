@@ -75,12 +75,12 @@ internal object ProxyFailureMessages {
                 "اسمح بإذن الموقع التقريبي عند طلبه. التطبيق لا يقرأ إحداثيات موقعك الحقيقي. إذا رفضت الإذن، فعّله من إعدادات أذونات التطبيق ثم أعد الاتصال.",
             )
             has(text, "appop", "mock location app", "access_mock_location", "mock location disabled", "test provider", "لم يتم اختيار", "لم يعتمد اختيار", "اختيار التطبيق", "مزوّد الموقع الوهمي") -> Advice(
-                "Android لم يعتمد Proxy Platform كتطبيق الموقع الوهمي.",
-                "افتح خيارات المطوّر ← اختيار تطبيق الموقع الوهمي، واختر Proxy Platform، ثم ارجع وأعد التحقق.",
+                "Android لم يعتمد Kun cloak كتطبيق الموقع الوهمي.",
+                "افتح خيارات المطوّر ← اختيار تطبيق الموقع الوهمي، واختر Kun cloak، ثم ارجع وأعد التحقق.",
             )
             has(text, "fused", "google play", "setmockmode", "setmocklocation", "play services") -> Advice(
                 "خدمات الموقع المدمجة في Google لم تقبل الإحداثيات الوهمية أو لا تعمل بشكل سليم.",
-                "تأكد من اختيار Proxy Platform في خيارات المطوّر، ومنح إذن الموقع التقريبي، وتحديث Google Play Services؛ ثم أعد تشغيل الموقع الوهمي.",
+                "تأكد من اختيار Kun cloak في خيارات المطوّر، ومنح إذن الموقع التقريبي، وتحديث Google Play Services؛ ثم أعد تشغيل الموقع الوهمي.",
             )
             has(text, "ipwho", "geoip", "unknownhostexception", "sockettimeout", "timed out", "تعذر تحديد موقع البروكسي") -> Advice(
                 "تعذّر الحصول على موقع خروج البروكسي؛ غالبًا تعذر الوصول إلى خدمة تحديد الموقع عبر البروكسي.",

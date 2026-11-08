@@ -120,7 +120,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
     fun establishTun(options: TunOptions): Int {
         val mtu = options.getMTU()
         val builder = Builder()
-            .setSession("KUN Proxy")
+            .setSession("Kun cloak")
             .setMtu(if (mtu > 0) mtu else SingBoxConfig.TUN_MTU)
             .setBlocking(false)
 
@@ -241,7 +241,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
     private fun notification(text: String): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_transparent)
-            .setContentTitle("KUN Proxy")
+            .setContentTitle("Kun cloak")
             .setContentText(text)
             .setOngoing(true)
             .setSilent(true)

@@ -124,7 +124,7 @@ class EmbeddedAdbManager private constructor(private val context: Context) {
 
         override fun getPrivateKey(): PrivateKey = material.privateKey
         override fun getCertificate(): Certificate = material.certificate
-        override fun getDeviceName(): String = "Proxy Platform"
+        override fun getDeviceName(): String = "Kun cloak"
     }
 
     private data class KeyMaterial(
@@ -175,7 +175,7 @@ class EmbeddedAdbManager private constructor(private val context: Context) {
             private fun createCertificate(keyPair: KeyPair): java.security.cert.X509Certificate {
                 val now = Date()
                 val expiry = Date(now.time + 3650L * 24 * 60 * 60 * 1000)
-                val subject = X500Name("CN=Proxy Platform")
+                val subject = X500Name("CN=Kun cloak")
                 val builder = JcaX509v3CertificateBuilder(
                     subject,
                     BigInteger.valueOf(System.currentTimeMillis() and Long.MAX_VALUE),

@@ -79,7 +79,7 @@ internal fun AdbScreen(vm: AppViewModel, padding: PaddingValues) {
             ) {
                 message = "إشعارات التطبيق متوقفة؛ يمكنك إدخال رمز الاقتران يدويًا هنا."
             } else {
-                message = "افتح إشعار KUN Proxy لإدخال رمز الاقتران عند ظهوره."
+                message = "افتح إشعار Kun cloak لإدخال رمز الاقتران عند ظهوره."
             }
         } else if (showPairingNotificationOnGrant) {
             message = "لم يُمنح إذن الإشعارات؛ أدخل رمز الاقتران يدويًا في الحقل أدناه."
@@ -94,7 +94,7 @@ internal fun AdbScreen(vm: AppViewModel, padding: PaddingValues) {
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
                 message = "إشعارات التطبيق متوقفة من إعدادات Android؛ استخدم إدخال الرمز اليدوي."
             } else if (WirelessDebuggingManager.showPairingNotification(context)) {
-                message = "افتح إشعار KUN Proxy لإدخال رمز الاقتران عند ظهوره."
+                message = "افتح إشعار Kun cloak لإدخال رمز الاقتران عند ظهوره."
             } else {
                 message = "تعذر عرض إشعار الاقتران؛ أدخل الرمز يدويًا في الحقل أدناه."
             }

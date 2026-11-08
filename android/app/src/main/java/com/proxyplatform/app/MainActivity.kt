@@ -862,7 +862,7 @@ class MainActivity : ComponentActivity() {
                 val cause = result.exceptionOrNull()
                 mockLocationStatus = when {
                     result.isSuccess -> "تم اختيار التطبيق؛ صلاحية الموقع الوهمي جاهزة."
-                    cause is SecurityException -> "لم يتم اختيار التطبيق بعد. اختر Proxy Platform ثم ارجع إلى التطبيق."
+                    cause is SecurityException -> "لم يتم اختيار التطبيق بعد. اختر Kun cloak ثم ارجع إلى التطبيق."
                     else -> "تعذر التحقق من إعداد الموقع الوهمي؛ راجع سبب المشكلة أدناه."
                 }
                 if (result.isFailure) {
@@ -872,7 +872,7 @@ class MainActivity : ComponentActivity() {
                     )
                     AdvancedOperationLog.exception(
                         context,
-                        "فشل التحقق من اختيار Proxy Platform كتطبيق موقع وهمي",
+                        "فشل التحقق من اختيار Kun cloak كتطبيق موقع وهمي",
                         cause ?: IllegalStateException("App-op غير متاح"),
                     )
                 }
@@ -1020,7 +1020,7 @@ class MainActivity : ComponentActivity() {
                     onFailure = { failure ->
                         if (failure is SecurityException) mockLocationAuthorized = false
                         mockLocationStatus = if (failure is SecurityException) {
-                            "Android لم يعتمد اختيار التطبيق؛ افتح خيارات المطوّر واختر Proxy Platform."
+                            "Android لم يعتمد اختيار التطبيق؛ افتح خيارات المطوّر واختر Kun cloak."
                         } else {
                             "تعذر إرسال الإحداثيات؛ راجع سبب المشكلة وخطوات الإصلاح أدناه."
                         }
@@ -1315,7 +1315,7 @@ class MainActivity : ComponentActivity() {
                     val cause = mockAccess.exceptionOrNull()
                     val permissionDenied = cause is SecurityException
                     mockLocationStatus = if (permissionDenied) {
-                        "اختر Proxy Platform من إعداد اختيار تطبيق الموقع الوهمي."
+                        "اختر Kun cloak من إعداد اختيار تطبيق الموقع الوهمي."
                     } else {
                         "تعذر التحقق من إعداد الموقع الوهمي؛ راجع سبب المشكلة وخطوة الإصلاح أدناه."
                     }
@@ -1578,7 +1578,7 @@ class MainActivity : ComponentActivity() {
                         }
                         ExpandableDetails("إعداد وخصوصية الموقع") {
                             Text(
-                                "من خيارات المطوّر اختر تطبيق الموقع الوهمي ثم Proxy Platform. Android يتطلب هذا الاختيار يدويًا. يطلب التطبيق إذن الموقع التقريبي لتسليم الموقع الوهمي، ولا يقرأ موقعك الحقيقي.",
+                                "من خيارات المطوّر اختر تطبيق الموقع الوهمي ثم Kun cloak. Android يتطلب هذا الاختيار يدويًا. يطلب التطبيق إذن الموقع التقريبي لتسليم الموقع الوهمي، ولا يقرأ موقعك الحقيقي.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

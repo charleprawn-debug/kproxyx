@@ -375,7 +375,7 @@ class ProxyLocationController(private val context: Context) {
                 mockModePrefs.edit().remove(KEY_FUSED_MOCK_MODE_PENDING).commit()
             }
             throw IllegalStateException(
-                "لم يقبل Google Play Services الموقع الوهمي. تأكد أن Proxy Platform هو تطبيق الموقع الوهمي المحدد وأن خدمات Google Play مفعّلة ومحدّثة. ${failure.message ?: ""}",
+                "لم يقبل Google Play Services الموقع الوهمي. تأكد أن Kun cloak هو تطبيق الموقع الوهمي المحدد وأن خدمات Google Play مفعّلة ومحدّثة. ${failure.message ?: ""}",
                 failure,
             )
         }

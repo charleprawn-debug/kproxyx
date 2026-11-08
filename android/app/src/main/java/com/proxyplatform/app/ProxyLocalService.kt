@@ -207,7 +207,7 @@ class ProxyLocalService : Service(), CommandServerHandler {
     private fun notification(text: String): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_transparent)
-            .setContentTitle("KUN Proxy")
+            .setContentTitle("Kun cloak")
             .setContentText(text)
             .setOngoing(true)
             .setSilent(true)

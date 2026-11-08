@@ -93,7 +93,7 @@ internal fun AuthScreen(vm: AppViewModel) {
             Spacer(Modifier.height(24.dp))
             BrandMark(58.dp)
             Spacer(Modifier.height(14.dp))
-            Text("KUN Proxy", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Text("Kun cloak", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color.White)
             Text("اتصالك، بإعدادك.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.82f))
             Spacer(Modifier.height(30.dp))
 
@@ -110,7 +110,7 @@ internal fun AuthScreen(vm: AppViewModel) {
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
-                        if (register) "أنشئ حسابًا لإدارة خدماتك وملفك الشخصي." else "سجّل الدخول للمتابعة إلى KUN Proxy.",
+                        if (register) "أنشئ حسابًا لإدارة خدماتك وملفك الشخصي." else "سجّل الدخول للمتابعة إلى Kun cloak.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -270,7 +270,7 @@ internal fun MainShell(vm: AppViewModel) {
                     ) {
                         BrandMark(42.dp)
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Text("KUN Proxy", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Kun cloak", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(sectionTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                         }
                     }
