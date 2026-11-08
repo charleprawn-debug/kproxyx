@@ -7,7 +7,7 @@ const router = Router();
 router.post('/oxapay/webhook', async (req, res) => {
   const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? {}));
   const signature = String(req.header('x-oxapay-signature') ?? req.header('hmac') ?? '').trim();
-  if (!validSignature(rawBody, signature)) return res.status(401).json({ error: 'invalid_signature' });
+  if (!(await validSignature(rawBody, signature))) return res.status(401).json({ error: 'invalid_signature' });
   let payload: Record<string, unknown>;
   try { payload = JSON.parse(rawBody.toString('utf8')) as Record<string, unknown>; } catch { return res.status(400).json({ error: 'invalid_json' }); }
   const data = (payload.data ?? payload) as Record<string, unknown>;

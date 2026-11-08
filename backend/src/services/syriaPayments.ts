@@ -1,4 +1,5 @@
 import config from '../config';
+import { getPaymentSettings } from './paymentSettings';
 
 type Json = Record<string, unknown>;
 type Verification = { ok: boolean; reason?: string; externalRef?: string; raw?: Json };
@@ -11,13 +12,14 @@ const decimal = (value: unknown): number | null => {
 const dateValue = (tx: Json) => tx.date ?? tx.created_at ?? tx.timestamp ?? tx.datetime;
 
 async function request(params: Record<string, string>): Promise<{ ok: boolean; body?: Json; reason?: string }> {
-  if (!config.payments.syria.token) return { ok: false, reason: 'not_configured' };
+  const settings = (await getPaymentSettings()).syria;
+  if (!settings.token || !settings.apiBase) return { ok: false, reason: 'not_configured' };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.payments.syria.timeoutMs);
   try {
-    const url = new URL(config.payments.syria.baseUrl);
+    const url = new URL(settings.apiBase);
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-    const response = await fetch(url, { headers: { 'X-Api-Key': config.payments.syria.token, Accept: 'application/json', 'User-Agent': 'ProxyPlatform-PaymentVerifier/1.0' }, signal: controller.signal });
+    const response = await fetch(url, { headers: { 'X-Api-Key': settings.token, Accept: 'application/json', 'User-Agent': 'KunCloak-PaymentVerifier/1.0' }, signal: controller.signal });
     const body = await response.json() as Json;
     if (!response.ok || body.success !== true) return { ok: false, reason: 'provider_error' };
     return { ok: true, body };
@@ -27,7 +29,7 @@ async function request(params: Record<string, string>): Promise<{ ok: boolean; b
 }
 
 export async function verifySyriatel(amount: number, reference: string, createdAt: string): Promise<Verification> {
-  const query = config.payments.syria.query.trim();
+  const query = (await getPaymentSettings()).syria.query.trim();
   if (!query) return { ok: false, reason: 'not_configured' };
   const result = await request({ resource: 'syriatel', action: 'find_tx', tx: normalize(reference), gsm: query, period: '7' });
   if (!result.ok) return { ok: false, reason: result.reason };

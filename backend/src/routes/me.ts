@@ -139,7 +139,7 @@ router.post('/wallet/top-up/requests', async (req, res) => {
   const expectedUsd = method.currency === 'SYP' ? amount / Number(method.exchange_rate) : amount;
   if (!Number.isFinite(expectedUsd) || expectedUsd <= 0) return res.status(400).json({ error: { code: 'INVALID_EXCHANGE_RATE', message: 'سعر الصرف غير صالح.' } });
   const requestId = crypto.randomUUID();
-  if (method.currency === 'USDT' && !isOxaConfigured()) return res.status(503).json({ error: { code: 'OXAPAY_NOT_CONFIGURED', message: 'الدفع بالـUSDT غير مهيأ حاليًا.' } });
+  if (method.currency === 'USDT' && !(await isOxaConfigured())) return res.status(503).json({ error: { code: 'OXAPAY_NOT_CONFIGURED', message: 'الدفع بالـUSDT غير مهيأ حاليًا.' } });
   const { data, error } = await supabaseAdmin.from('wallet_topup_requests').insert({ id: requestId, user_id: req.user!.id, method_code: method.code, submitted_amount: amount, submitted_currency: method.currency, expected_usd: Math.round(expectedUsd * 100) / 100, transaction_reference: `pending-${requestId}`, provider_order_id: method.currency === 'USDT' ? requestId : null, provider_network: method.network || null, status: 'pending' }).select('id,method_code,submitted_amount,submitted_currency,expected_usd,status,created_at,provider_order_id').single();
   if (error) return res.status(400).json({ error: { code: 'TOPUP_REQUEST_CREATE_FAILED', message: error.code === '23505' ? 'تعذر إنشاء طلب الشحن.' : error.message } });
   if (method.currency !== 'USDT') return res.status(201).json({ data: { ...data, method } });

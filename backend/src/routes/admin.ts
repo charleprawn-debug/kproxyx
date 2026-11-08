@@ -1,10 +1,29 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { supabaseAdmin } from '../utils/supabase';
+import { paymentSettingsStatus, savePaymentSettings } from '../services/paymentSettings';
 
 const router = Router();
 router.use(requireAuth, requireRole('admin'));
 const featureKeys = ['advanced', 'sim', 'vpn', 'mock_location'];
+
+router.get('/payment-secrets', async (_req, res) => {
+  try { return res.json({ data: await paymentSettingsStatus() }); } catch { return res.status(500).json({ error: { code: 'PAYMENT_SETTINGS_UNAVAILABLE', message: 'تعذر تحميل حالة إعدادات الدفع.' } }); }
+});
+
+router.put('/payment-secrets', async (req, res) => {
+  const body = req.body ?? {};
+  const values: Record<string, string> = {};
+  const fields: Record<string, string> = {
+    oxapayApiBase: 'payment_oxapay_api_base', oxapayMerchantKey: 'payment_oxapay_merchant_key', oxapayWebhookUrl: 'payment_oxapay_webhook_url', oxapayFeePaidByPayer: 'payment_oxapay_fee_paid_by_payer',
+    syriaApiBase: 'payment_syria_api_base', syriaToken: 'payment_syria_token', syriaQuery: 'payment_syria_query',
+  };
+  for (const [input, key] of Object.entries(fields)) if (typeof body[input] === 'string' && body[input].trim()) values[key] = body[input].trim();
+  if (values.payment_oxapay_api_base) { try { if (!['http:', 'https:'].includes(new URL(values.payment_oxapay_api_base).protocol)) throw new Error(); } catch { return res.status(400).json({ error: { code: 'INVALID_OXAPAY_URL', message: 'رابط OxaPay غير صالح.' } }); } }
+  if (values.payment_oxapay_webhook_url) { try { if (new URL(values.payment_oxapay_webhook_url).protocol !== 'https:') throw new Error(); } catch { return res.status(400).json({ error: { code: 'INVALID_WEBHOOK_URL', message: 'رابط Webhook يجب أن يكون HTTPS.' } }); } }
+  if (values.payment_syria_api_base) { try { if (!['http:', 'https:'].includes(new URL(values.payment_syria_api_base).protocol)) throw new Error(); } catch { return res.status(400).json({ error: { code: 'INVALID_SYRIA_URL', message: 'رابط مزود الدفع السوري غير صالح.' } }); } }
+  try { await savePaymentSettings(values); return res.json({ data: await paymentSettingsStatus() }); } catch { return res.status(400).json({ error: { code: 'PAYMENT_SETTINGS_SAVE_FAILED', message: 'تعذر حفظ إعدادات الدفع.' } }); }
+});
 
 router.get('/landing-settings', async (_req, res) => {
   const { data, error } = await supabaseAdmin.from('app_settings').select('key,value,updated_at').eq('key', 'landing_download_url').maybeSingle();
