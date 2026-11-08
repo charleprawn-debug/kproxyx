@@ -18,7 +18,7 @@ android {
         buildConfigField(
             "String",
             "API_BASE_URL",
-            "\"${providers.gradleProperty("API_BASE_URL").orElse("https://uyguhj.onrender.com/api/v1").get()}\"",
+            "\"${providers.gradleProperty("API_BASE_URL").orElse("https://api.kun.publicvm.com:10059/api/v1").get()}\"",
         )
     }
 

@@ -12,15 +12,15 @@ permissions:
 
 jobs:
   api-smoke:
-    name: Render API smoke test
+    name: KProxyX API smoke test
     runs-on: ubuntu-latest
     steps:
       - name: Verify liveness
-        run: curl --fail --silent --show-error https://uyguhj.onrender.com/livez
+        run: curl --fail --silent --show-error https://api.kun.publicvm.com:10059/livez
       - name: Verify readiness
-        run: curl --fail --silent --show-error https://uyguhj.onrender.com/readyz
+        run: curl --fail --silent --show-error https://api.kun.publicvm.com:10059/readyz
       - name: Verify products contract
-        run: curl --fail --silent --show-error https://uyguhj.onrender.com/api/v1/products
+        run: curl --fail --silent --show-error https://api.kun.publicvm.com:10059/api/v1/products
 
   backend:
     name: Backend quality gates
@@ -61,7 +61,7 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager --channel=3 "platforms;android-35" "platforms;android-37.2" "build-tools;35.0.0" "build-tools;37.0.0"
       - name: Configure API endpoint
-        run: echo "API_BASE_URL=${{ vars.API_BASE_URL || 'https://uyguhj.onrender.com/api/v1' }}" >> gradle.properties
+        run: echo "API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.kun.publicvm.com:10059/api/v1' }}" >> gradle.properties
       - run: chmod +x gradlew
       - run: ./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --no-daemon
       - name: Upload debug APK
