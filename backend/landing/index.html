@@ -30,17 +30,6 @@
     </section>
     <div class="footer">Kun cloak · خصوصيتك تبدأ من اتصالك</div>
   </main>
-  <script>
-    (async function(){
-      const button=document.getElementById('download'), error=document.getElementById('error');
-      try{
-        const response=await fetch('/api/v1/landing',{headers:{Accept:'application/json'},cache:'no-store'});
-        const payload=await response.json();
-        if(!response.ok||!payload.data||!payload.data.downloadUrl) throw new Error('missing');
-        button.href=payload.data.downloadUrl;
-        button.target='_blank';
-      }catch(_){button.removeAttribute('href');button.setAttribute('aria-disabled','true');button.addEventListener('click',e=>{e.preventDefault();error.classList.add('show')})}
-    })();
-  </script>
+  <script src="/landing/landing.js" defer></script>
 </body>
 </html>
