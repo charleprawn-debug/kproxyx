@@ -6,6 +6,22 @@ const router = Router();
 router.use(requireAuth, requireRole('admin'));
 const featureKeys = ['advanced', 'sim', 'vpn', 'mock_location'];
 
+router.get('/landing-settings', async (_req, res) => {
+  const { data, error } = await supabaseAdmin.from('app_settings').select('key,value,updated_at').eq('key', 'landing_download_url').maybeSingle();
+  if (error) return res.status(500).json({ error: { code: 'LANDING_SETTINGS_UNAVAILABLE', message: 'تعذر تحميل إعدادات صفحة الهبوط.' } });
+  return res.json({ data: { downloadUrl: data?.value ?? '', updatedAt: data?.updated_at ?? null } });
+});
+
+router.put('/landing-settings', async (req, res) => {
+  const downloadUrl = typeof req.body?.downloadUrl === 'string' ? req.body.downloadUrl.trim() : '';
+  let parsed: URL;
+  try { parsed = new URL(downloadUrl); } catch { return res.status(400).json({ error: { code: 'INVALID_DOWNLOAD_URL', message: 'أدخل رابط تحميل صحيحًا.' } }); }
+  if (!['http:', 'https:'].includes(parsed.protocol) || downloadUrl.length > 2048) return res.status(400).json({ error: { code: 'INVALID_DOWNLOAD_URL', message: 'يجب أن يكون رابط التحميل HTTPS أو HTTP وبطول صالح.' } });
+  const { data, error } = await supabaseAdmin.from('app_settings').upsert({ key: 'landing_download_url', value: downloadUrl, updated_at: new Date().toISOString() }, { onConflict: 'key' }).select('key,value,updated_at').single();
+  if (error) return res.status(400).json({ error: { code: 'LANDING_SETTINGS_SAVE_FAILED', message: 'تعذر حفظ رابط التحميل.' } });
+  return res.json({ data: { downloadUrl: data.value, updatedAt: data.updated_at } });
+});
+
 router.get('/overview', async (_req, res) => {
   const tables = ['users', 'proxy_products', 'subscriptions', 'orders', 'connection_sessions'] as const;
   const counts = await Promise.all(tables.map(async (table) => { const result = await supabaseAdmin.from(table).select('id', { count: 'exact', head: true }); return [table, result.error ? null : result.count ?? 0] as const; }));

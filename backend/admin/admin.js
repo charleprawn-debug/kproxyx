@@ -7,7 +7,7 @@ const featureCatalog = {
   mock_location: { label: 'محاكاة الموقع', description: 'صلاحية أدوات محاكاة الموقع' },
 };
 let token = localStorage.getItem(tokenKey);
-let state = { users: [], plans: [] };
+let state = { users: [], plans: [], landing: { downloadUrl: '' } };
 
 const api = (path, options = {}) => fetch(`/api/v1/admin${path}`, {
   ...options,
@@ -38,14 +38,19 @@ function bindFeatureCards(root) { root.querySelectorAll('input[name="features"]'
 
 async function load() {
   try {
-    const [overview, users, plans, methods, topups] = await Promise.all([api('/overview'), api('/users'), api('/subscription-plans'), api('/top-up-methods'), api('/top-up-requests?status=pending')]);
-    state = { users: users.data || [], plans: plans.data || [] };
+    const [overview, users, plans, methods, topups, landing] = await Promise.all([api('/overview'), api('/users'), api('/subscription-plans'), api('/top-up-methods'), api('/top-up-requests?status=pending'), api('/landing-settings').catch(() => ({ data: { downloadUrl: '' } }))]);
+    state = { users: users.data || [], plans: plans.data || [], landing: landing.data || { downloadUrl: '' } };
     const counts = overview.data.counts || {};
     $('#stats').innerHTML = [
       ['👥', 'إجمالي المستخدمين', counts.users], ['✓', 'الاشتراكات النشطة', overview.data.activeSubscriptions], ['◆', 'خطط الاشتراك', state.plans.length], ['₿', 'طلبات الشحن المعلقة', (topups.data || []).length], ['↗', 'جلسات الاتصال', counts.connection_sessions],
     ].map(([icon, label, value]) => `<article class="stat"><div class="icon">${icon}</div><b>${value ?? 0}</b><span>${label}</span></article>`).join('');
-    renderUsers(); renderSubscriptionPlans(); renderTopupMethods(methods.data || []); renderTopups(topups.data || []);
+    renderUsers(); renderSubscriptionPlans(); renderTopupMethods(methods.data || []); renderTopups(topups.data || []); renderLandingSettings();
   } catch (error) { if ([401, 403].includes(error.status)) { localStorage.removeItem(tokenKey); location.reload(); return; } toast('تعذر تحميل بيانات اللوحة', true); }
+}
+
+function renderLandingSettings() {
+  $('#landingSettings').innerHTML = `<div class="toolbar"><div><h2>صفحة الهبوط</h2><span class="muted">تحكم برابط تحميل التطبيق الظاهر للزوار دون تعديل الملفات.</span></div><a class="btn secondary" href="/" target="_blank" rel="noopener">فتح الصفحة</a></div><div class="section-note">سيظهر الرابط مباشرة عند ضغط الزائر على زر «تحميل التطبيق». استخدم رابط APK مباشرًا يبدأ بـ HTTPS قدر الإمكان.</div><label class="field">رابط التحميل المباشر<input id="landingDownloadUrl" class="input" type="url" maxlength="2048" placeholder="https://example.com/app.apk" value="${esc(state.landing.downloadUrl)}"></label><div style="display:flex;justify-content:flex-start;margin-top:18px"><button class="btn" id="saveLandingSettings">حفظ رابط التحميل</button></div>`;
+  $('#saveLandingSettings').onclick = () => action(async () => { const downloadUrl = $('#landingDownloadUrl').value.trim(); await api('/landing-settings', { method: 'PUT', body: JSON.stringify({ downloadUrl }) }); await load(); toast('تم تحديث رابط تحميل التطبيق'); });
 }
 
 function renderUsers() {

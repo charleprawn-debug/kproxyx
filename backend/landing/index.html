@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08111f">
+  <meta name="description" content="KUN Proxy — اتصال أسرع وخصوصية أفضل.">
+  <title>KUN Proxy | تحميل التطبيق</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#f7fbff;background:#08111f}
+    *{box-sizing:border-box}body{margin:0;min-height:100svh;overflow-x:hidden;background:#08111f}
+    .page{position:relative;min-height:100svh;display:grid;place-items:center;padding:28px 20px;isolation:isolate;overflow:hidden}
+    .glow{position:absolute;z-index:-1;border-radius:50%;filter:blur(3px);pointer-events:none}.glow.one{width:520px;height:520px;top:-240px;right:-120px;background:#1e58ff40}.glow.two{width:430px;height:430px;bottom:-250px;left:-150px;background:#13c9b840}
+    .grid{position:absolute;inset:0;z-index:-1;opacity:.3;background-image:linear-gradient(#ffffff0a 1px,transparent 1px),linear-gradient(90deg,#ffffff0a 1px,transparent 1px);background-size:48px 48px;mask-image:linear-gradient(to bottom,transparent,#000 25%,#000 75%,transparent)}
+    .content{width:min(620px,100%);text-align:center;animation:rise .8s ease both}.mark{width:76px;height:76px;margin:0 auto 24px;display:grid;place-items:center;border-radius:24px;background:linear-gradient(145deg,#4778ff,#18d3bd);box-shadow:0 18px 45px #1b80ff45;position:relative}.mark:before{content:"";width:31px;height:39px;border:4px solid #fff;border-radius:17px 17px 12px 12px;transform:translateY(2px)}.mark:after{content:"";position:absolute;width:18px;height:4px;border-radius:4px;background:#fff;transform:rotate(-45deg) translate(3px,0)}
+    .eyebrow{color:#7fe9de;font-size:12px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;margin-bottom:15px}.title{margin:0;font-size:clamp(39px,8vw,76px);line-height:.98;letter-spacing:-.065em;font-weight:900}.title span{display:block;color:#80a7ff}.subtitle{max-width:460px;margin:23px auto 0;color:#a8b8cb;font-size:clamp(15px,2.7vw,18px);line-height:1.8}.download{display:inline-flex;align-items:center;justify-content:center;gap:13px;min-width:min(330px,100%);margin-top:38px;padding:18px 30px;border:1px solid #ffffff26;border-radius:17px;background:linear-gradient(135deg,#4b79ff,#2671df);color:#fff;text-decoration:none;font-size:18px;font-weight:850;box-shadow:0 17px 35px #236be34d;transition:transform .2s,box-shadow .2s,filter .2s}.download:hover{transform:translateY(-3px);filter:brightness(1.08);box-shadow:0 23px 45px #236be366}.download:active{transform:translateY(0)}.arrow{font-size:22px;line-height:1;transition:transform .2s}.download:hover .arrow{transform:translateY(3px)}.footer{position:absolute;bottom:20px;right:20px;left:20px;text-align:center;color:#64758b;font-size:12px}
+    .error{display:none;color:#ffb4b4;margin-top:28px;font-size:14px}.error.show{display:block}@keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}@media(max-width:520px){.page{padding:24px 18px}.mark{width:68px;height:68px;border-radius:21px}.title{font-size:48px}.subtitle{font-size:15px}.download{width:100%;margin-top:31px}.footer{bottom:14px}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="glow one"></div><div class="glow two"></div><div class="grid"></div>
+    <section class="content" aria-labelledby="title">
+      <div class="mark" aria-hidden="true"></div>
+      <div class="eyebrow">KUN PROXY</div>
+      <h1 class="title" id="title">اتصل بحرية<br><span>وابقَ محميًا</span></h1>
+      <p class="subtitle">تجربة اتصال أكثر سلاسة وخصوصية، مصممة لتكون معك أينما ذهبت.</p>
+      <a class="download" id="download" href="#" rel="noopener">تحميل التطبيق <span class="arrow">↓</span></a>
+      <p class="error" id="error">رابط التحميل غير متاح حاليًا. حاول مرة أخرى لاحقًا.</p>
+    </section>
+    <div class="footer">KUN Proxy · خصوصيتك تبدأ من اتصالك</div>
+  </main>
+  <script>
+    (async function(){
+      const button=document.getElementById('download'), error=document.getElementById('error');
+      try{
+        const response=await fetch('/api/v1/landing',{headers:{Accept:'application/json'},cache:'no-store'});
+        const payload=await response.json();
+        if(!response.ok||!payload.data||!payload.data.downloadUrl) throw new Error('missing');
+        button.href=payload.data.downloadUrl;
+        button.target='_blank';
+      }catch(_){button.removeAttribute('href');button.setAttribute('aria-disabled','true');button.addEventListener('click',e=>{e.preventDefault();error.classList.add('show')})}
+    })();
+  </script>
+</body>
+</html>
