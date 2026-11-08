@@ -40,6 +40,9 @@ ALTER TABLE public.user_saved_proxies ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view own saved proxies" ON public.user_saved_proxies;
 CREATE POLICY "Users can view own saved proxies" ON public.user_saved_proxies FOR SELECT USING (user_id = (SELECT id FROM public.users WHERE auth_id = auth.uid()));
 
+-- The existing installation has a different OUT signature, so PostgreSQL
+-- requires dropping the old overload before recreating it with trial fields.
+DROP FUNCTION IF EXISTS public.purchase_subscription_plan(UUID, UUID);
 CREATE OR REPLACE FUNCTION public.purchase_subscription_plan(p_user_id UUID, p_plan_id UUID)
 RETURNS TABLE(success BOOLEAN, message TEXT, subscription_id UUID, new_balance NUMERIC, free_activation BOOLEAN, trial_minutes INTEGER)
 LANGUAGE plpgsql SECURITY DEFINER AS $$
