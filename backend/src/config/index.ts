@@ -23,7 +23,7 @@ export const config = {
     syria: { baseUrl: process.env.SYRIATEL_API_BASE_URL ?? '', token: process.env.SYRIATEL_API_TOKEN ?? '', query: process.env.SYRIATEL_API_QUERY ?? '', timeoutMs: number('SYRIATEL_API_TIMEOUT_MS', number('SYRIA_API_TIMEOUT_MS', 15000)) },
     oxapay: { baseUrl: (process.env.OXAPAY_API_BASE ?? 'https://api.oxapay.com/v1').replace(/\/$/, ''), merchantKey: process.env.OXAPAY_MERCHANT_API_KEY ?? '', webhookUrl: process.env.OXAPAY_WEBHOOK_URL ?? '', timeoutMs: number('OXAPAY_API_TIMEOUT_MS', number('OXAPAY_TIMEOUT_MS', 15000)), feePaidByPayer: ['true', '1', 'yes'].includes((process.env.OXAPAY_FEE_PAID_BY_PAYER ?? 'false').toLowerCase()) },
   },
-  corsOrigins: Array.from(new Set((process.env.CORS_ORIGINS ?? 'http://localhost:3001,http://localhost:3002').split(',').map((v) => v.trim()).filter(Boolean).concat('https://uyguhj.onrender.com'))),
+  corsOrigins: Array.from(new Set((process.env.CORS_ORIGINS ?? 'http://localhost:3001,http://localhost:3002').split(',').map((v) => v.trim()).filter(Boolean).concat('https://uyguhj.onrender.com', 'https://api.kun.publicvm.com:10059', 'https://api.kun.publicvm.com'))),
   rateLimit: { windowMs: number('RATE_LIMIT_WINDOW_MS', 900000), max: number('RATE_LIMIT_MAX_REQUESTS', 100) },
 };
 export default config;
