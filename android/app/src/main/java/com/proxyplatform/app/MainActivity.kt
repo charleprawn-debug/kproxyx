@@ -1373,18 +1373,7 @@ class MainActivity : ComponentActivity() {
             }
 
             checkingEndpoint = false
-            if (mode == "vpn") {
-                requestStartVpn()
-            } else if (blockWebRtc) {
-                // The local Android system-proxy mode cannot intercept direct
-                // UDP sockets used by WebRTC. Switch to the TUN implementation
-                // so the enabled protection is real rather than cosmetic.
-                AdvancedOperationLog.info(context, "حجب WebRTC مفعّل؛ تحويل الوضع المتقدم إلى نفق VPN لحجب UDP خارج البروكسي.")
-                mode = "vpn"
-                requestStartVpn()
-            } else {
-                requestStartAdvanced()
-            }
+            if (mode == "vpn") requestStartVpn() else requestStartAdvanced()
         }
     }
 
@@ -1415,7 +1404,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    if (mode == "advanced" && !blockWebRtc && !wirelessReady) {
+    if (mode == "advanced" && !wirelessReady) {
         AdbRequiredPanel(
             modifier = Modifier.fillMaxSize().padding(padding),
             title = "البروكسي المتقدم",
@@ -1494,7 +1483,7 @@ class MainActivity : ComponentActivity() {
                         )
                         Text("حجب WebRTC", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     }
-                    Text("يحجب منافذ STUN/TURN الشائعة داخل مسار sing-box. ملاحظة: تطبيقات WebRTC التي تتجاوز بروكسي النظام قد تحتاج وضع VPN لحجب شامل.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("يحجب اتصالات WebRTC التي تمر عبر البروكسي المحلي. بروكسي النظام المتقدم لا يستطيع اعتراض UDP المباشر الذي قد يفتحه المتصفح خارج البروكسي.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Checkbox(
                             checked = matchProxyTimezone,
