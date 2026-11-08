@@ -115,7 +115,7 @@ async function purchaseExternal(req: any, res: any, provider: string) {
   if (provider === 'proxy-cheap') {
     try { const resolved = await resolveProxyCheapPayload({ ...body, locationId: body.locationId ?? country, planId }); proxyCheapServiceId = resolved.serviceId; payload = resolved.payload; }
     catch (error) { const failure = proxyCheapFailure(error, 'تعذر التحقق من الموقع لدى المزود.'); return res.status(failure.status).json({ error: { code: failure.code, message: failure.message } }); }
-  } else payload = { title: String(body.title ?? `Proxy Platform ${new Date().toISOString().slice(0, 10)}`).slice(0, 80), whitelist: '', geo: { country: sellerLocation[0] ?? '', region: sellerLocation[1] ?? '', city: sellerLocation[2] ?? '', isp: sellerLocation[3] ?? '' }, export: { ports: Math.min(1000, Math.max(1, Number(body.ports ?? 1))), ext: 'csv' }, rotation: Number(body.rotation ?? -1) };
+  } else payload = { title: String(body.title ?? `Kun cloak ${new Date().toISOString().slice(0, 10)}`).slice(0, 80), whitelist: '', geo: { country: sellerLocation[0] ?? '', region: sellerLocation[1] ?? '', city: sellerLocation[2] ?? '', isp: sellerLocation[3] ?? '' }, export: { ports: Math.min(1000, Math.max(1, Number(body.ports ?? 1))), ext: 'csv' }, rotation: Number(body.rotation ?? -1) };
   let price = 0;
   try { if (provider === 'proxy-cheap') { const quoted = await proxyCheapService.quote(proxyCheapServiceId, payload, body.trafficGb ?? 1); payload = quoted.payload; price = providerPrice(quoted.response); } }
   catch (error) { const failure = proxyCheapFailure(error, 'تعذر الحصول على السعر من المزود.'); return res.status(failure.status).json({ error: { code: failure.code, message: failure.message } }); }

@@ -53,6 +53,6 @@ export function createApp() {
   app.use(errors);
   return app;
 }
-export async function startServer() { const app = createApp(); return app.listen(config.port, () => console.log(`Proxy Platform API listening on port ${config.port}`)); }
+export async function startServer() { const app = createApp(); return app.listen(config.port, () => console.log(`Kun cloak API listening on port ${config.port}`)); }
 if (require.main === module) startServer().catch((error) => { console.error(error); process.exit(1); });
 export default createApp();

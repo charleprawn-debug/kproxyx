@@ -21,7 +21,7 @@
     "vpn",
     "platform"
   ],
-  "author": "Proxy Platform Team",
+  "author": "Kun cloak Team",
   "license": "MIT",
   "dependencies": {
     "express": "^4.22.1",
