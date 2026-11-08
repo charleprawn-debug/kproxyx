@@ -72,3 +72,28 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Prepare release keystore
+        if: github.event_name != 'pull_request'
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.KUNCLOAK_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$RELEASE_KEYSTORE_BASE64"
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > kuncloak-release.jks
+          chmod 600 kuncloak-release.jks
+          {
+            echo "RELEASE_STORE_FILE=$GITHUB_WORKSPACE/android/kuncloak-release.jks"
+            echo "RELEASE_STORE_PASSWORD=${{ secrets.KUNCLOAK_RELEASE_STORE_PASSWORD }}"
+            echo "RELEASE_KEY_ALIAS=${{ secrets.KUNCLOAK_RELEASE_KEY_ALIAS }}"
+            echo "RELEASE_KEY_PASSWORD=${{ secrets.KUNCLOAK_RELEASE_KEY_PASSWORD }}"
+          } >> gradle.properties
+      - name: Build signed release APK
+        if: github.event_name != 'pull_request'
+        run: ./gradlew :app:assembleRelease --no-daemon
+      - name: Upload signed release APK
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kuncloak-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30

@@ -34,6 +34,23 @@ android {
         compose = true
         buildConfig = true
     }
+    signingConfigs {
+        create("release") {
+            val keystorePath = providers.gradleProperty("RELEASE_STORE_FILE").orNull
+            val keystorePassword = providers.gradleProperty("RELEASE_STORE_PASSWORD").orNull
+            val keyAliasValue = providers.gradleProperty("RELEASE_KEY_ALIAS").orNull
+            val keyPasswordValue = providers.gradleProperty("RELEASE_KEY_PASSWORD").orNull
+            if (!keystorePath.isNullOrBlank() && !keystorePassword.isNullOrBlank() && !keyAliasValue.isNullOrBlank() && !keyPasswordValue.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = keystorePassword
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+    buildTypes.getByName("release") {
+        signingConfig = signingConfigs.getByName("release")
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
