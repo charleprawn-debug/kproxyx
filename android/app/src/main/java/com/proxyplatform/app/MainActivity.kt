@@ -224,8 +224,14 @@ internal class ApiClient(context: Context) {
             throw failure
         }
     }
-    fun login(email: String, password: String) { saveSession(request("/auth/login", "POST", JSONObject().put("email", email.trim()).put("password", password)).getJSONObject("data")) }
-    fun register(email: String, password: String, name: String) { request("/auth/register", "POST", JSONObject().put("email", email.trim()).put("password", password).put("fullName", name.trim())) }
+    fun login(email: String, password: String) { saveSession(request("/auth/login", "POST", JSONObject().put("email", email.trim()).put("password", password).put("deviceId", deviceRegistrationId())).getJSONObject("data")) }
+    private fun deviceRegistrationId(): String {
+        val androidId = Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID).orEmpty().trim()
+        return "${appContext.packageName}:$androidId"
+    }
+    fun register(email: String, password: String, name: String) {
+        request("/auth/register", "POST", JSONObject().put("email", email.trim()).put("password", password).put("fullName", name.trim()).put("deviceId", deviceRegistrationId()))
+    }
     fun products(): List<Product> {
         val rows = request("/products").optJSONArray("data")
             ?: throw IllegalStateException("استجابة السوق غير صالحة.")
