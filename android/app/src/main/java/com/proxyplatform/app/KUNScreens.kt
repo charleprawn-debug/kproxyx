@@ -75,11 +75,23 @@ import java.util.Locale
 
 @Composable
 internal fun AuthScreen(vm: AppViewModel) {
-    var register by remember { mutableStateOf(false) }
-    var recovery by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf("login") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
+
+    val register = mode == "register"
+    val changePassword = mode == "change"
+    val title = when (mode) {
+        "register" -> "حسابك يبدأ من هنا"
+        "change" -> "تغيير كلمة المرور"
+        else -> "أهلًا بعودتك"
+    }
+    val subtitle = when (mode) {
+        "register" -> "أنشئ حسابًا لإدارة خدماتك وملفك الشخصي."
+        "change" -> "أدخل البريد وكلمة المرور الجديدة للتحقق من هذا الهاتف."
+        else -> "سجّل الدخول للمتابعة إلى Kun cloak."
+    }
 
     Box(Modifier.fillMaxSize().background(KunPalette.Background)) {
         Box(
@@ -87,8 +99,7 @@ internal fun AuthScreen(vm: AppViewModel) {
                 .background(Brush.linearGradient(listOf(KunPalette.PrimaryDeep, KunPalette.Primary, KunPalette.Cyan)))
         )
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 28.dp),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(24.dp))
@@ -97,7 +108,6 @@ internal fun AuthScreen(vm: AppViewModel) {
             Text("Kun cloak", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color.White)
             Text("اتصالك، بإعدادك.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.82f))
             Spacer(Modifier.height(30.dp))
-
             Card(
                 modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp),
                 shape = RoundedCornerShape(28.dp),
@@ -105,106 +115,60 @@ internal fun AuthScreen(vm: AppViewModel) {
                 elevation = CardDefaults.cardElevation(defaultElevation = 7.dp),
             ) {
                 Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text(
-                        if (register) "حسابك يبدأ من هنا" else "أهلًا بعودتك",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                    Text(
-                        if (register) "أنشئ حسابًا لإدارة خدماتك وملفك الشخصي." else "سجّل الدخول للمتابعة إلى Kun cloak.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
+                    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(KunPalette.SurfaceSoft).padding(4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        AuthModeButton("تسجيل الدخول", selected = !register, modifier = Modifier.weight(1f)) {
-                            register = false
-                            vm.clearError()
-                        }
-                        AuthModeButton("حساب جديد", selected = register, modifier = Modifier.weight(1f)) {
-                            register = true
-                            vm.clearError()
-                        }
+                        AuthModeButton("تسجيل الدخول", mode == "login", Modifier.weight(1f)) { mode = "login"; vm.clearError() }
+                        AuthModeButton("حساب جديد", mode == "register", Modifier.weight(1f)) { mode = "register"; vm.clearError() }
+                        AuthModeButton("تغيير كلمة المرور", mode == "change", Modifier.weight(1f)) { mode = "change"; vm.clearError() }
                     }
-
                     AnimatedContent(targetState = register) { showName ->
-                        if (showName) {
-                            OutlinedTextField(
-                                value = name,
-                                onValueChange = { name = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("الاسم الكامل") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(16.dp),
-                            )
-                        } else {
-                            Spacer(Modifier.height(1.dp))
-                        }
+                        if (showName) OutlinedTextField(
+                            value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth(),
+                            label = { Text("الاسم الكامل") }, singleLine = true, shape = RoundedCornerShape(16.dp),
+                        ) else Spacer(Modifier.height(1.dp))
                     }
                     OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("البريد الإلكتروني") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
+                        value = email, onValueChange = { email = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("البريد الإلكتروني") }, singleLine = true, shape = RoundedCornerShape(16.dp),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                     )
                     OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("كلمة المرور") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        visualTransformation = PasswordVisualTransformation(),
+                        value = password, onValueChange = { password = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text(if (changePassword) "كلمة المرور الجديدة" else "كلمة المرور") }, singleLine = true,
+                        shape = RoundedCornerShape(16.dp), visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                     )
-
                     AnimatedVisibility(visible = vm.error != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                         Surface(
-                            color = if (vm.error?.startsWith("تم إنشاء الحساب") == true) KunPalette.SuccessSoft else KunPalette.ErrorSoft,
+                            color = if (vm.error?.startsWith("تم") == true) KunPalette.SuccessSoft else KunPalette.ErrorSoft,
                             shape = RoundedCornerShape(14.dp),
                         ) {
-                            Text(
-                                vm.error.orEmpty(),
-                                Modifier.fillMaxWidth().padding(12.dp),
-                                color = if (vm.error?.startsWith("تم إنشاء الحساب") == true) KunPalette.Success else KunPalette.Error,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            Text(vm.error.orEmpty(), Modifier.fillMaxWidth().padding(12.dp),
+                                color = if (vm.error?.startsWith("تم") == true) KunPalette.Success else KunPalette.Error,
+                                style = MaterialTheme.typography.bodySmall)
                         }
                     }
-
                     KUNPrimaryButton(
-                        text = if (recovery) "تغيير كلمة المرور" else if (register) "إنشاء الحساب" else "تسجيل الدخول",
+                        text = when (mode) { "register" -> "إنشاء الحساب"; "change" -> "تأكيد تغيير كلمة المرور"; else -> "تسجيل الدخول" },
                         onClick = {
-                            if (recovery) vm.deviceResetPassword(email, password)
-                            else if (register) vm.register(email, password, name) { register = false }
-                            else vm.login(email, password)
+                            when (mode) {
+                                "register" -> vm.register(email, password, name) { mode = "login" }
+                                "change" -> vm.deviceResetPassword(email, password)
+                                else -> vm.login(email, password)
+                            }
                         },
                         enabled = !vm.loading && email.isNotBlank() && password.length >= 8 && (!register || name.isNotBlank()),
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        loading = vm.loading,
+                        modifier = Modifier.fillMaxWidth().height(56.dp), loading = vm.loading,
                     )
-                    if (!register && !recovery) {
-                        Text(
-                            "نسيت كلمة المرور؟ تحقق من هذا الهاتف وغيّر كلمة المرور",
-                            modifier = Modifier.fillMaxWidth().clickable { recovery = true; vm.clearError() }.padding(8.dp),
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
                 }
             }
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                FeaturePill("VPN")
-                FeaturePill("HTTP")
-                FeaturePill("SOCKS5")
+                FeaturePill("VPN"); FeaturePill("HTTP"); FeaturePill("SOCKS5")
             }
         }
     }

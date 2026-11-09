@@ -14,13 +14,16 @@ object SingBoxConfig {
         username: String,
         password: String,
         localPort: Int = 10808,
-        blockWebRtc: Boolean = true,
+        blockWebRtc: Boolean = false,
     ): File {
         val outbound = JSONObject()
             .put("type", if (protocol == "socks5") "socks" else protocol)
             .put("tag", "proxy")
             .put("server", host)
             .put("server_port", port)
+            // Residential SOCKS5 providers commonly expose CONNECT/TCP only.
+            // Keep the tunnel usable when UDP ASSOCIATE is unavailable.
+            .put("network", "tcp")
         if (protocol in setOf("vmess", "vless", "trojan", "shadowsocks")) {
             outbound.put("multiplex", JSONObject().put("enabled", true).put("protocol", "smux").put("max_connections", 4))
         }
@@ -52,11 +55,7 @@ object SingBoxConfig {
                 .put(outbound)
                 .put(JSONObject().put("type", "direct").put("tag", "direct")))
             .put("route", JSONObject()
-                .put("rules", JSONArray().apply {
-                    if (blockWebRtc) put(JSONObject().put("network", "udp").put("port", JSONArray().put(3478).put(5349)).put("action", "reject"))
-                })
-                // This is the Android local-proxy mode, not a TUN. Let the
-                // OS route outbound sockets instead of selecting a TUN NIC.
+                .put("rules", JSONArray())
                 .put("auto_detect_interface", false)
                 .put("final", "proxy"))
 
@@ -66,13 +65,7 @@ object SingBoxConfig {
         }
     }
 
-    /**
-     * Same outbound/DNS/routing as [write], but the local inbound is a "tun"
-     * device instead of a loopback mixed proxy. Used by [ProxyVpnService] —
-     * the one-tap, no-Shizuku connection mode. sing-box then reads the TUN
-     * file descriptor that Android's VpnService.Builder.establish() hands
-     * back through [TunPlatformInterface.openTun].
-     */
+    /** Same TCP-adaptive outbound with an Android VpnService TUN inbound. */
     fun writeTun(
         context: Context,
         protocol: String,
@@ -81,13 +74,14 @@ object SingBoxConfig {
         username: String,
         password: String,
         includeMockLocationInbound: Boolean = false,
-        blockWebRtc: Boolean = true,
+        blockWebRtc: Boolean = false,
     ): File {
         val outbound = JSONObject()
             .put("type", if (protocol == "socks5") "socks" else protocol)
             .put("tag", "proxy")
             .put("server", host)
             .put("server_port", port)
+            .put("network", "tcp")
         if (protocol in setOf("vmess", "vless", "trojan", "shadowsocks")) {
             outbound.put("multiplex", JSONObject().put("enabled", true).put("protocol", "smux").put("max_connections", 4))
         }
@@ -116,8 +110,6 @@ object SingBoxConfig {
             .put("type", "tun")
             .put("tag", "tun-in")
             .put("interface_name", "proxyplatform")
-            // Route both address families into Android's VPN. WebRTC can
-            // choose IPv6, so omitting this address could leave IPv6 outside the TUN.
             .put("address", JSONArray().put(TUN_ADDRESS).put(TUN_IPV6_ADDRESS))
             .put("mtu", TUN_MTU)
             .put("auto_route", true)
@@ -136,22 +128,9 @@ object SingBoxConfig {
                 .put(outbound)
                 .put(JSONObject().put("type", "direct").put("tag", "direct")))
             .put("route", JSONObject()
-                // DNS from Android's TUN must be handled by sing-box. Without
-                // this rule it can be sent as raw UDP through an HTTP proxy,
-                // which cannot carry UDP and leaves every app without DNS.
-                .put("rules", JSONArray().apply {
-                    put(JSONObject().put("port", 53).put("action", "hijack-dns"))
-                    // A TUN is required for reliable WebRTC protection. Reject
-                    // every UDP flow when protection is enabled; limiting the
-                    // rule to STUN ports still allows browsers to discover a
-                    // host-candidate or use a non-standard TURN port.
-                    if (blockWebRtc) put(JSONObject().put("network", "udp").put("action", "reject"))
-                })
-                // sing-box's generic auto_detect_interface is not supported
-                // on Android. The VpnService adapter protects sing-box's
-                // outbound sockets through autoDetectInterfaceControl instead.
-                // Enabling auto-detection here made DNS fail with
-                // "no available network interface" on real Android devices.
+                // DNS is handled by sing-box; upstream traffic is TCP-only so
+                // SOCKS5 providers without UDP relay still work normally.
+                .put("rules", JSONArray().put(JSONObject().put("port", 53).put("action", "hijack-dns")))
                 .put("auto_detect_interface", false)
                 .put("final", "proxy"))
 

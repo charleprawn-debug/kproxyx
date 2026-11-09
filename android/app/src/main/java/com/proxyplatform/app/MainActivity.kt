@@ -837,9 +837,6 @@ class MainActivity : ComponentActivity() {
                 .getBoolean("enabled", false)
         )
     }
-    var highProtection by remember {
-        mutableStateOf(context.getSharedPreferences("high_protection_options", Context.MODE_PRIVATE).getBoolean("enabled", true))
-    }
     var matchProxyLanguage by remember {
         mutableStateOf(
             context.getSharedPreferences("advanced_proxy_language_options", Context.MODE_PRIVATE)
@@ -1092,7 +1089,7 @@ class MainActivity : ComponentActivity() {
         ProxyLocalService.clearLastError(context)
         runCatching {
             AdvancedOperationLog.info(context, "إرسال طلب تشغيل خدمة البروكسي المحلي إلى Android.")
-            startLocalProxyService(context, protocol, host, port, username, password, highProtection)
+            startLocalProxyService(context, protocol, host, port, username, password, false)
         }.onFailure {
             AdvancedOperationLog.exception(context, "تعذر إرسال طلب تشغيل خدمة البروكسي", it)
             starting = false
@@ -1261,7 +1258,7 @@ class MainActivity : ComponentActivity() {
                 username,
                 password,
                 includeMockLocationInbound = mockLocation && locationMode == "auto",
-                blockWebRtc = highProtection,
+                blockWebRtc = false,
             )
         }.onFailure {
             starting = false
@@ -1381,29 +1378,6 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
 
-            if (mode == "vpn" && protocol == "socks5" && highProtection) {
-                AdvancedOperationLog.info(
-                    context,
-                    "فحص UDP relay في SOCKS5 قبل طلب إذن VPN؛ WebRTC يعتمد على مرور UDP، ولن يبدأ النفق إذا لم يمنح الخادم UDP ASSOCIATE."
-                )
-                val udpProbe = withContext(Dispatchers.IO) {
-                    ProxyEndpointProbe.checkSocks5UdpAssociation(
-                        host,
-                        parsedPort!!,
-                        if (auth) username else "",
-                        if (auth) password else "",
-                        trace = { stage -> AdvancedOperationLog.info(context, "فحص SOCKS5 UDP: $stage") },
-                    )
-                }
-                if (udpProbe.isFailure) {
-                    checkingEndpoint = false
-                    val failure = udpProbe.exceptionOrNull()
-                    if (failure != null) AdvancedOperationLog.exception(context, "فشل اختبار SOCKS5 UDP relay", failure)
-                    error = ProxyFailureMessages.connection(false, failure?.message ?: "SOCKS5 UDP ASSOCIATE was rejected")
-                    return@launch
-                }
-            }
-
             checkingEndpoint = false
             if (mode == "vpn") requestStartVpn() else requestStartAdvanced()
         }
@@ -1476,12 +1450,9 @@ class MainActivity : ComponentActivity() {
                 }
                 if (mode == "vpn") {
                     Text(
-                        if (protocol == "socks5")
-                            "SOCKS5: يُفحص دعم UDP قبل الاتصال."
-                        else
-                            "HTTP لا ينقل UDP لمكالمات WebRTC؛ استخدم SOCKS5 يدعم UDP.",
+                        "يتم تكييف الاتصال تلقائيًا مع قدرات البروكسي؛ بروكسيات SOCKS5 التي لا تدعم UDP تعمل عبر TCP بشكل طبيعي.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (protocol == "socks5") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.secondary,
                     )
                 }
             }
@@ -1499,23 +1470,10 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        // Advanced mode uses the shared Wireless ADB connection configured on the dedicated ADB page.
+        // Connection behavior options retained; UDP is handled automatically by the upstream capability.
         item {
             KUNCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.material3.Checkbox(
-                            checked = highProtection,
-                            onCheckedChange = { enabled ->
-                                highProtection = enabled
-                                context.getSharedPreferences("high_protection_options", Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).apply()
-                                error = null
-                            },
-                            enabled = !running && !starting && !checkingEndpoint && !stopping,
-                        )
-                        Text("حماية عالية", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    }
-                    Text("تحجب الحماية العالية مرور UDP غير المدعوم وتقلل تسرب WebRTC. أوقفها فقط إذا كان مزود البروكسي لا يدعم UDP.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Checkbox(
                             checked = matchProxyTimezone,
