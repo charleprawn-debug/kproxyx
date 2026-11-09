@@ -132,11 +132,17 @@ object SingBoxConfig {
             .put("route", JSONObject()
                 // DNS is handled by sing-box; upstream traffic is TCP-only so
                 // SOCKS5 providers without UDP relay still work normally.
-                .put("rules", JSONArray().put(JSONObject().put("port", 53).put("action", "hijack-dns")))
-                // The VPN platform callback protects the upstream socket from
-                // re-entering this TUN. Disabling interface detection here can
-                // create a routing loop and makes the normal VPN mode fail.
-                .put("auto_detect_interface", true)
+                .put("rules", JSONArray().apply {
+                    put(JSONObject().put("port", 53).put("action", "hijack-dns"))
+                    // A TCP-only SOCKS5 server cannot carry WebRTC/UDP. Reject
+                    // those packets locally instead of sending them to a SOCKS
+                    // outbound that will fail and stall the browser session.
+                    if (!allowUdp) put(JSONObject().put("network", "udp").put("action", "reject"))
+                })
+                // On Android, TunPlatformInterface protects the upstream socket
+                // through VpnService.protect(). Generic interface auto-detection
+                // can select the TUN itself and create a routing loop.
+                .put("auto_detect_interface", false)
                 .put("final", "proxy"))
 
         return File(context.filesDir, TUN_CONFIG_FILE).also {
