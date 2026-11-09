@@ -198,10 +198,6 @@ internal fun AuthScreen(vm: AppViewModel) {
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
-                    if (recovery) {
-                        Text("تحقق الجهاز يتم على الخادم. لن نعرض كلمة المرور القديمة؛ أدخل كلمة مرور جديدة.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("العودة لتسجيل الدخول", modifier = Modifier.fillMaxWidth().clickable { recovery = false; vm.clearError() }.padding(8.dp), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.primary)
-                    }
                 }
             }
             Spacer(Modifier.height(18.dp))
@@ -685,4 +681,39 @@ private fun readableDate(value: String): String {
         DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("ar"))
             .format(Instant.parse(value).atZone(ZoneId.systemDefault()).toLocalDate())
     }.getOrDefault(value)
+}
+
+@Composable
+private fun RecoveryScreen(vm: AppViewModel, onBack: () -> Unit) {
+    var email by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    Box(Modifier.fillMaxSize().background(KunPalette.Background)) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 30.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Spacer(Modifier.height(24.dp))
+            BrandMark(62.dp)
+            Text("استعادة الحساب", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
+            Text("أدخل البريد وكلمة مرور جديدة للمتابعة", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Card(Modifier.fillMaxWidth().widthIn(max = 480.dp), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(7.dp)) {
+                Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("البريد الإلكتروني") }, singleLine = true, shape = RoundedCornerShape(16.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next))
+                    OutlinedTextField(newPassword, { newPassword = it }, Modifier.fillMaxWidth(), label = { Text("كلمة المرور الجديدة") }, singleLine = true, shape = RoundedCornerShape(16.dp), visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done))
+                    AnimatedVisibility(vm.error != null) {
+                        Surface(color = KunPalette.ErrorSoft, shape = RoundedCornerShape(14.dp)) { Text(vm.error.orEmpty(), Modifier.fillMaxWidth().padding(12.dp), color = KunPalette.Error, style = MaterialTheme.typography.bodySmall) }
+                    }
+                    KUNPrimaryButton(
+                        text = "تأكيد الاستعادة",
+                        onClick = { vm.deviceResetPassword(email, newPassword) },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        enabled = !vm.loading && email.isNotBlank() && newPassword.length >= 8,
+                        loading = vm.loading,
+                    )
+                    Text("العودة لتسجيل الدخول", Modifier.fillMaxWidth().clickable(onClick = onBack).padding(8.dp), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+    }
 }

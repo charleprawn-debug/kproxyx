@@ -229,8 +229,7 @@ internal class ApiClient(context: Context) {
     fun forgotPassword(email: String) { request("/auth/forgot-password", "POST", JSONObject().put("email", email.trim())) }
     fun deviceResetPassword(email: String, newPassword: String) { request("/auth/device-reset-password", "POST", JSONObject().put("email", email.trim()).put("newPassword", newPassword).put("deviceId", deviceRegistrationId())) }
     private fun deviceRegistrationId(): String {
-        val androidId = Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID).orEmpty().trim()
-        return "${appContext.packageName}:$androidId"
+        return Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID).orEmpty().trim()
     }
     fun register(email: String, password: String, name: String) {
         request("/auth/register", "POST", JSONObject().put("email", email.trim()).put("password", password).put("fullName", name.trim()).put("deviceId", deviceRegistrationId()))
@@ -439,7 +438,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
         loading = true; error = null
         viewModelScope.launch(Dispatchers.IO) {
             try { apiClient.deviceResetPassword(email, newPassword); withContext(Dispatchers.Main) { error = "تم تغيير كلمة المرور بنجاح. استخدم كلمة المرور الجديدة لتسجيل الدخول." } }
-            catch (failure: Exception) { withContext(Dispatchers.Main) { error = failure.message ?: "هذا البريد غير مرتبط بهذا الجهاز." } }
+            catch (_: Exception) { withContext(Dispatchers.Main) { error = "تعذر إكمال الاستعادة. تحقق من البيانات وحاول مجددًا." } }
             finally { withContext(Dispatchers.Main) { loading = false } }
         }
     }

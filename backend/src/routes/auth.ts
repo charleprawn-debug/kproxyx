@@ -11,23 +11,26 @@ function normalizeEmail(value: unknown): string {
 
 const adminEmails = new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
 
-function deviceHash(value: unknown): string {
+function deviceHashes(value: unknown): string[] {
   const deviceId = typeof value === 'string' ? value.trim() : '';
-  if (deviceId.length < 8 || deviceId.length > 512) return '';
-  return crypto.createHmac('sha256', config.encryption.key).update(deviceId, 'utf8').digest('hex');
+  if (deviceId.length < 8 || deviceId.length > 512) return [];
+  const values = [deviceId, `com.proxyplatform.app:${deviceId}`, `com.proxyplatform.app.debug:${deviceId}`];
+  return [...new Set(values.map((item) => crypto.createHmac('sha256', config.encryption.key).update(item, 'utf8').digest('hex')))];
 }
+function deviceHash(value: unknown): string { return deviceHashes(value)[0] ?? ''; }
 
 router.post('/register', async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const { password, fullName } = req.body ?? {};
   const deviceFingerprintHash = deviceHash(req.body?.deviceId);
+  const deviceFingerprintHashes = deviceHashes(req.body?.deviceId);
 
   if (!/^\S+@\S+\.\S+$/.test(email) || typeof password !== 'string' || password.length < 8) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Valid email and password of at least 8 characters are required' } });
   }
   if (!deviceFingerprintHash) return res.status(400).json({ error: { code: 'DEVICE_ID_REQUIRED', message: 'لا يمكن إنشاء الحساب دون التحقق من الجهاز.' } });
 
-  const existingBinding = await supabaseAdmin.from('device_account_bindings').select('id').eq('device_fingerprint_hash', deviceFingerprintHash).maybeSingle();
+  const existingBinding = await supabaseAdmin.from('device_account_bindings').select('id').in('device_fingerprint_hash', deviceFingerprintHashes).limit(1).maybeSingle();
   if (existingBinding.data) return res.status(409).json({ error: { code: 'DEVICE_ALREADY_REGISTERED', message: 'تم إنشاء حساب مسبقًا من هذا الجهاز. استخدم تسجيل الدخول للحساب الحالي.' } });
   if (existingBinding.error && existingBinding.error.code !== 'PGRST116') return res.status(503).json({ error: { code: 'DEVICE_CHECK_UNAVAILABLE', message: 'تعذر التحقق من الجهاز حاليًا.' } });
 
@@ -64,18 +67,10 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const { password } = req.body ?? {};
-  const deviceFingerprintHash = deviceHash(req.body?.deviceId);
   const result = await supabaseClient.auth.signInWithPassword({ email, password });
   if (result.error || !result.data.session) return res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect' } });
-  if (deviceFingerprintHash && result.data.user) {
-    const profile = await supabaseAdmin.from('users').select('id').eq('auth_id', result.data.user.id).maybeSingle();
-    if (profile.data) {
-      const existing = await supabaseAdmin.from('device_account_bindings').select('id').eq('device_fingerprint_hash', deviceFingerprintHash).maybeSingle();
-      if (!existing.data && !existing.error) {
-        await supabaseAdmin.from('device_account_bindings').insert({ device_fingerprint_hash: deviceFingerprintHash, user_id: profile.data.id });
-      }
-    }
-  }
+  // Login never creates a new device binding. Bindings are created only during registration,
+  // so signing in from another device cannot silently make that device eligible for recovery.
   return res.json({ data: { accessToken: result.data.session.access_token, refreshToken: result.data.session.refresh_token, expiresAt: result.data.session.expires_at } });
 });
 
@@ -96,9 +91,10 @@ router.post('/device-reset-password', async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
   const fingerprint = deviceHash(req.body?.deviceId);
+  const fingerprints = deviceHashes(req.body?.deviceId);
   if (!/^\S+@\S+\.\S+$/.test(email) || newPassword.length < 8 || !fingerprint) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'أدخل البريد وكلمة مرور جديدة صالحة.' } });
   const { data: profile } = await supabaseAdmin.from('users').select('id,auth_id').eq('email', email).maybeSingle();
-  const { data: binding } = await supabaseAdmin.from('device_account_bindings').select('user_id').eq('device_fingerprint_hash', fingerprint).maybeSingle();
+  const { data: binding } = await supabaseAdmin.from('device_account_bindings').select('user_id').in('device_fingerprint_hash', fingerprints).limit(1).maybeSingle();
   if (!profile || !binding || binding.user_id !== profile.id) return res.status(403).json({ error: { code: 'DEVICE_ACCOUNT_MISMATCH', message: 'هذا البريد غير مرتبط بهذا الجهاز.' } });
   const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_id, { password: newPassword });
   if (error) return res.status(503).json({ error: { code: 'PASSWORD_RESET_FAILED', message: 'تعذر تغيير كلمة المرور حاليًا.' } });
