@@ -64,7 +64,14 @@ jobs:
       - name: Configure API endpoint
         run: echo "API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.kun.publicvm.com:10059/api/v1' }}" >> gradle.properties
       - run: chmod +x gradlew
-      - run: ./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Build debug APK with dependency retries
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --no-daemon && exit 0
+            echo "Android dependency/build attempt ${attempt} failed; retrying after 15 seconds..."
+            sleep 15
+          done
+          exit 1
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
