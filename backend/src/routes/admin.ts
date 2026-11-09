@@ -77,9 +77,30 @@ router.get('/overview', async (_req, res) => {
 
 router.get('/users', async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit ?? 100), 1), 250);
-  const { data, error } = await supabaseAdmin.from('users').select('id,email,full_name,role,status,is_email_verified,created_at,last_login_at,login_count').order('created_at', { ascending: false }).limit(limit);
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  let query = supabaseAdmin.from('users').select('id,email,full_name,role,status,is_email_verified,created_at,last_login_at,login_count').order('created_at', { ascending: false }).limit(limit);
+  if (search) query = query.or(`email.ilike.%${search}%,full_name.ilike.%${search}%`);
+  const { data, error } = await query;
   if (error) return res.status(500).json({ error: { code: 'USERS_UNAVAILABLE', message: 'Could not load users' } });
   return res.json({ data: data ?? [] });
+});
+
+router.get('/users/:id/activity', async (req, res) => {
+  const { data, error } = await supabaseAdmin.from('user_activity_logs').select('id,action,entity_type,entity_id,metadata,created_at').eq('user_id', req.params.id).order('created_at', { ascending: false }).limit(200);
+  if (error) return res.status(500).json({ error: { code: 'USER_ACTIVITY_UNAVAILABLE', message: 'تعذر تحميل سجلات المستخدم.' } });
+  return res.json({ data: data ?? [] });
+});
+
+router.post('/broadcasts', async (req, res) => {
+  const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 120) : '';
+  const message = typeof req.body?.message === 'string' ? req.body.message.trim().slice(0, 2000) : '';
+  if (!title || !message) return res.status(400).json({ error: { code: 'INVALID_BROADCAST', message: 'العنوان والرسالة مطلوبان.' } });
+  const { data: users, error: usersError } = await supabaseAdmin.from('users').select('id').eq('status', 'active');
+  if (usersError) return res.status(500).json({ error: { code: 'BROADCAST_USERS_UNAVAILABLE', message: 'تعذر تحميل المستخدمين.' } });
+  const rows = (users ?? []).map((user) => ({ user_id: user.id, title, message, notification_type: 'admin_broadcast', category: 'system' }));
+  if (rows.length) { const { error } = await supabaseAdmin.from('notifications').insert(rows); if (error) return res.status(500).json({ error: { code: 'BROADCAST_FAILED', message: 'تعذر إرسال الرسالة.' } }); }
+  await supabaseAdmin.from('audit_logs').insert({ action: 'broadcast_notification', entity_type: 'notification', new_values: { title, recipient_count: rows.length }, user_agent: req.get('user-agent') ?? null });
+  return res.status(201).json({ data: { recipients: rows.length } });
 });
 
 router.patch('/users/:id', async (req, res) => {

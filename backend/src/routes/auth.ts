@@ -85,4 +85,11 @@ router.post('/refresh', async (req, res) => {
   return res.json({ data: { accessToken: result.data.session.access_token, refreshToken: result.data.session.refresh_token, expiresAt: result.data.session.expires_at } });
 });
 
+router.post('/forgot-password', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'أدخل بريدًا إلكترونيًا صالحًا.' } });
+  await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: 'https://kuncloak.work.gd:10059/' });
+  return res.json({ data: { message: 'إذا كان البريد مسجلًا، سيصلك رابط آمن لإعادة تعيين كلمة المرور.' } });
+});
+
 export default router;

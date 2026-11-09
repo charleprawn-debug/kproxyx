@@ -122,6 +122,7 @@ internal data class WalletTransaction(val amount: Double, val description: Strin
 internal data class TopUpMethod(val code: String, val name: String, val currency: String, val network: String, val address: String, val minAmount: Double, val exchangeRate: Double, val instructions: String)
 internal data class TopUpRequest(val id: String, val methodCode: String, val amount: Double, val currency: String, val expectedUsd: Double, val reference: String, val status: String, val createdAt: String)
 internal data class FeatureAccess(val advanced: Boolean = false, val sim: Boolean = false, val vpn: Boolean = false, val mockLocation: Boolean = false)
+internal data class AppNotification(val id: String, val title: String, val message: String, val read: Boolean, val createdAt: String)
 internal enum class Screen { SUBSCRIPTIONS, PROXY, SIM, ADB, PROFILE, WALLET }
 
 private val SuccessGreen = KunPalette.Success
@@ -225,6 +226,7 @@ internal class ApiClient(context: Context) {
         }
     }
     fun login(email: String, password: String) { saveSession(request("/auth/login", "POST", JSONObject().put("email", email.trim()).put("password", password).put("deviceId", deviceRegistrationId())).getJSONObject("data")) }
+    fun forgotPassword(email: String) { request("/auth/forgot-password", "POST", JSONObject().put("email", email.trim())) }
     private fun deviceRegistrationId(): String {
         val androidId = Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID).orEmpty().trim()
         return "${appContext.packageName}:$androidId"
@@ -232,6 +234,8 @@ internal class ApiClient(context: Context) {
     fun register(email: String, password: String, name: String) {
         request("/auth/register", "POST", JSONObject().put("email", email.trim()).put("password", password).put("fullName", name.trim()).put("deviceId", deviceRegistrationId()))
     }
+    fun notifications(): List<AppNotification> = request("/me/notifications").optJSONArray("data")?.let { rows -> (0 until rows.length()).map { i -> rows.getJSONObject(i).let { AppNotification(it.getString("id"), it.optString("title"), it.optString("message"), it.optBoolean("is_read"), it.optString("created_at")) } } } ?: emptyList()
+    fun markNotificationRead(id: String) { request("/me/notifications/$id/read", "PATCH", JSONObject()) }
     fun products(): List<Product> {
         val rows = request("/products").optJSONArray("data")
             ?: throw IllegalStateException("استجابة السوق غير صالحة.")
@@ -377,6 +381,9 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
     var activatingPlanId by mutableStateOf<String?>(null); private set
     var activationError by mutableStateOf<String?>(null); private set
     var wirelessState by mutableStateOf(WirelessDebuggingManager.DebuggingState.NOT_PAIRED); private set
+    var notifications by mutableStateOf<List<AppNotification>>(emptyList()); private set
+    fun loadNotifications() = viewModelScope.launch(Dispatchers.IO) { runCatching { apiClient.notifications() }.onSuccess { withContext(Dispatchers.Main) { notifications = it } } }
+    fun markNotificationRead(id: String) = viewModelScope.launch(Dispatchers.IO) { runCatching { apiClient.markNotificationRead(id) }; withContext(Dispatchers.Main) { notifications = notifications.map { if (it.id == id) it.copy(read = true) else it } } }
 
     private var profileLoaded = false
     private var subscriptionsLoaded = false
@@ -394,6 +401,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
         lastAccountRefreshAt = now
         loadPlansAndWallet(force = true)
         loadSubscriptions(force = true)
+        loadNotifications()
         if (profile != null) loadProfile(force = true)
         if (walletDetailsLoaded) loadWalletDetails(force = true)
     }
@@ -414,6 +422,15 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
                     loading = false
                 }
             }
+        }
+    }
+
+    fun forgotPassword(email: String) {
+        loading = true; error = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try { apiClient.forgotPassword(email); withContext(Dispatchers.Main) { error = "إذا كان البريد مسجلًا، سيصلك رابط آمن لإعادة تعيين كلمة المرور." } }
+            catch (failure: Exception) { withContext(Dispatchers.Main) { error = failure.message ?: "تعذر إرسال رابط الاستعادة." } }
+            finally { withContext(Dispatchers.Main) { loading = false } }
         }
     }
 
@@ -811,8 +828,8 @@ class MainActivity : ComponentActivity() {
                 .getBoolean("enabled", false)
         )
     }
-    var blockWebRtc by remember {
-        mutableStateOf(context.getSharedPreferences("advanced_proxy_webrtc_options", Context.MODE_PRIVATE).getBoolean("enabled", true))
+    var highProtection by remember {
+        mutableStateOf(context.getSharedPreferences("high_protection_options", Context.MODE_PRIVATE).getBoolean("enabled", true))
     }
     var matchProxyLanguage by remember {
         mutableStateOf(
@@ -1066,7 +1083,7 @@ class MainActivity : ComponentActivity() {
         ProxyLocalService.clearLastError(context)
         runCatching {
             AdvancedOperationLog.info(context, "إرسال طلب تشغيل خدمة البروكسي المحلي إلى Android.")
-            startLocalProxyService(context, protocol, host, port, username, password, blockWebRtc)
+            startLocalProxyService(context, protocol, host, port, username, password, highProtection)
         }.onFailure {
             AdvancedOperationLog.exception(context, "تعذر إرسال طلب تشغيل خدمة البروكسي", it)
             starting = false
@@ -1235,7 +1252,7 @@ class MainActivity : ComponentActivity() {
                 username,
                 password,
                 includeMockLocationInbound = mockLocation && locationMode == "auto",
-                blockWebRtc = blockWebRtc,
+                blockWebRtc = highProtection,
             )
         }.onFailure {
             starting = false
@@ -1355,7 +1372,7 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
 
-            if (mode == "vpn" && protocol == "socks5") {
+            if (mode == "vpn" && protocol == "socks5" && highProtection) {
                 AdvancedOperationLog.info(
                     context,
                     "فحص UDP relay في SOCKS5 قبل طلب إذن VPN؛ WebRTC يعتمد على مرور UDP، ولن يبدأ النفق إذا لم يمنح الخادم UDP ASSOCIATE."
@@ -1474,22 +1491,22 @@ class MainActivity : ComponentActivity() {
         }
 
         // Advanced mode uses the shared Wireless ADB connection configured on the dedicated ADB page.
-        if (mode == "advanced") item {
+        item {
             KUNCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Checkbox(
-                            checked = blockWebRtc,
+                            checked = highProtection,
                             onCheckedChange = { enabled ->
-                                blockWebRtc = enabled
-                                context.getSharedPreferences("advanced_proxy_webrtc_options", Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).apply()
+                                highProtection = enabled
+                                context.getSharedPreferences("high_protection_options", Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).apply()
                                 error = null
                             },
                             enabled = !running && !starting && !checkingEndpoint && !stopping,
                         )
-                        Text("حجب WebRTC", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("حماية عالية", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     }
-                    Text("يحجب اتصالات WebRTC التي تمر عبر البروكسي المحلي. بروكسي النظام المتقدم لا يستطيع اعتراض UDP المباشر الذي قد يفتحه المتصفح خارج البروكسي.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("تحجب الحماية العالية مرور UDP غير المدعوم وتقلل تسرب WebRTC. أوقفها فقط إذا كان مزود البروكسي لا يدعم UDP.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Checkbox(
                             checked = matchProxyTimezone,

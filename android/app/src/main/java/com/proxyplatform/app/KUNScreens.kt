@@ -187,6 +187,15 @@ internal fun AuthScreen(vm: AppViewModel) {
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         loading = vm.loading,
                     )
+                    if (!register) {
+                        Text(
+                            "نسيت كلمة المرور؟ أرسل رابط استعادة آمن إلى بريدك",
+                            modifier = Modifier.fillMaxWidth().clickable { vm.forgotPassword(email) }.padding(8.dp),
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(18.dp))
@@ -232,6 +241,7 @@ internal fun MainShell(vm: AppViewModel) {
     }
     LaunchedEffect(Unit) {
         vm.loadPlansAndWallet()
+        vm.loadNotifications()
         while (true) {
             vm.updateWirelessState(withContext(Dispatchers.IO) { WirelessDebuggingManager.checkState(context) })
             delay(3_000)
@@ -272,6 +282,14 @@ internal fun MainShell(vm: AppViewModel) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text("Kun cloak", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(sectionTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                    vm.notifications.firstOrNull { !it.read }?.let { notice ->
+                        Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth().clickable { vm.markNotificationRead(notice.id) }) {
+                            Column(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
+                                Text(notice.title, fontWeight = FontWeight.Bold, color = KunPalette.PrimaryDeep)
+                                Text(notice.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
                         }
                     }
                     Box(Modifier.fillMaxWidth().height(1.dp).background(KunPalette.Border))

@@ -7,7 +7,7 @@ const featureCatalog = {
   mock_location: { label: 'محاكاة الموقع', description: 'صلاحية أدوات محاكاة الموقع' },
 };
 let token = localStorage.getItem(tokenKey);
-let state = { users: [], plans: [], landing: { downloadUrl: '' }, appUpdate: { enabled: false, minimumVersionCode: 0, message: '', updateUrl: '' }, paymentSecrets: {} };
+let state = { users: [], userSearch: '', plans: [], landing: { downloadUrl: '' }, appUpdate: { enabled: false, minimumVersionCode: 0, message: '', updateUrl: '' }, paymentSecrets: {} };
 
 const api = (path, options = {}) => fetch(`/api/v1/admin${path}`, {
   ...options,
@@ -38,8 +38,8 @@ function bindFeatureCards(root) { root.querySelectorAll('input[name="features"]'
 
 async function load() {
   try {
-    const [overview, users, plans, methods, topups, landing, appUpdate, paymentSecrets] = await Promise.all([api('/overview'), api('/users'), api('/subscription-plans'), api('/top-up-methods'), api('/top-up-requests?status=pending'), api('/landing-settings').catch(() => ({ data: { downloadUrl: '' } })), api('/app-update-settings').catch(() => ({ data: { enabled: false, minimumVersionCode: 0, message: '', updateUrl: '' } })), api('/payment-secrets').catch(() => ({ data: {} }))]);
-    state = { users: users.data || [], plans: plans.data || [], landing: landing.data || { downloadUrl: '' }, appUpdate: appUpdate.data || { enabled: false, minimumVersionCode: 0, message: '', updateUrl: '' }, paymentSecrets: paymentSecrets.data || {} };
+    const [overview, users, plans, methods, topups, landing, appUpdate, paymentSecrets] = await Promise.all([api('/overview'), api(`/users?search=${encodeURIComponent(state.userSearch || '')}`), api('/subscription-plans'), api('/top-up-methods'), api('/top-up-requests?status=pending'), api('/landing-settings').catch(() => ({ data: { downloadUrl: '' } })), api('/app-update-settings').catch(() => ({ data: { enabled: false, minimumVersionCode: 0, message: '', updateUrl: '' } })), api('/payment-secrets').catch(() => ({ data: {} }))]);
+    state = { users: users.data || [], userSearch: state.userSearch || '', plans: plans.data || [], landing: landing.data || { downloadUrl: '' }, appUpdate: appUpdate.data || { enabled: false, minimumVersionCode: 0, message: '', updateUrl: '' }, paymentSecrets: paymentSecrets.data || {} };
     const counts = overview.data.counts || {};
     $('#stats').innerHTML = [
       ['👥', 'إجمالي المستخدمين', counts.users], ['✓', 'الاشتراكات النشطة', overview.data.activeSubscriptions], ['◆', 'خطط الاشتراك', state.plans.length], ['₿', 'طلبات الشحن المعلقة', (topups.data || []).length], ['↗', 'جلسات الاتصال', counts.connection_sessions],
@@ -63,9 +63,20 @@ function renderLandingSettings() {
 
 function renderUsers() {
   const rows = state.users;
-  $('#users').innerHTML = `<div class="toolbar"><div><h2>المستخدمون</h2><span class="muted">${rows.length} حساب مسجل</span></div><button class="btn secondary" id="refreshUsers">تحديث البيانات</button></div>${rows.length ? `<div class="table-wrap"><table><thead><tr><th>المستخدم</th><th>الصلاحية</th><th>الحالة</th><th>آخر دخول</th><th>إجراءات</th></tr></thead><tbody>${rows.map((user) => `<tr><td><div class="user-name">${esc(user.full_name || 'بدون اسم')}</div><div class="user-email">${esc(user.email)}</div></td><td><span class="pill ${user.role === 'admin' ? '' : 'off'}">${esc(user.role)}</span></td><td><span class="pill ${user.status === 'active' ? '' : 'warn'}">${esc(user.status)}</span></td><td>${date(user.last_login_at)}</td><td><div class="actions"><button class="btn small secondary" data-action="features" data-id="${user.id}">الميزات</button><button class="btn small secondary" data-action="plan" data-id="${user.id}">تفعيل خطة</button><button class="btn small ghost" data-action="wallet" data-id="${user.id}">الرصيد</button><button class="btn small ${user.status === 'banned' ? 'secondary' : 'danger'}" data-action="status" data-id="${user.id}" data-status="${user.status === 'banned' ? 'active' : 'banned'}">${user.status === 'banned' ? 'إلغاء الحظر' : 'حظر'}</button></div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">لا يوجد مستخدمون حتى الآن.</div>'}`;
+  $('#users').innerHTML = `<div class="toolbar"><div><h2>المستخدمون</h2><span class="muted">${rows.length} حساب مسجل</span></div><div class="toolbar-actions"><input id="userSearch" class="input" style="width:240px;margin:0" placeholder="بحث بالاسم أو البريد" value="${esc(state.userSearch || '')}"><button class="btn secondary" id="searchUsers">بحث</button><button class="btn" id="broadcastUsers">رسالة للجميع</button><button class="btn secondary" id="refreshUsers">تحديث البيانات</button></div></div>${rows.length ? `<div class="table-wrap"><table><thead><tr><th>المستخدم</th><th>الصلاحية</th><th>الحالة</th><th>آخر دخول</th><th>إجراءات</th></tr></thead><tbody>${rows.map((user) => `<tr><td><div class="user-name">${esc(user.full_name || 'بدون اسم')}</div><div class="user-email">${esc(user.email)}</div></td><td><span class="pill ${user.role === 'admin' ? '' : 'off'}">${esc(user.role)}</span></td><td><span class="pill ${user.status === 'active' ? '' : 'warn'}">${esc(user.status)}</span></td><td>${date(user.last_login_at)}</td><td><div class="actions"><button class="btn small secondary" data-action="features" data-id="${user.id}">الميزات</button><button class="btn small secondary" data-action="plan" data-id="${user.id}">تفعيل خطة</button><button class="btn small ghost" data-action="activity" data-id="${user.id}">السجلات</button><button class="btn small ghost" data-action="wallet" data-id="${user.id}">الرصيد</button><button class="btn small ${user.status === 'banned' ? 'secondary' : 'danger'}" data-action="status" data-id="${user.id}" data-status="${user.status === 'banned' ? 'active' : 'banned'}">${user.status === 'banned' ? 'إلغاء الحظر' : 'حظر'}</button></div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">لا يوجد مستخدمون حتى الآن.</div>'}`;
   $('#refreshUsers').onclick = load;
+  $('#searchUsers').onclick = () => { state.userSearch = $('#userSearch').value.trim(); load(); };
+  $('#userSearch').onkeydown = (event) => { if (event.key === 'Enter') { state.userSearch = event.target.value.trim(); load(); } };
+  $('#broadcastUsers').onclick = () => openBroadcastModal();
   $('#users').querySelectorAll('[data-action]').forEach((button) => button.onclick = () => actionForUser(button.dataset.action, button.dataset.id, button.dataset));
+}
+
+async function openBroadcastModal() {
+  openModal('إرسال رسالة إلى جميع المستخدمين', '<div class="section-note">ستصل الرسالة إلى جميع الحسابات النشطة داخل التطبيق. لا تستخدمها للبيانات الحساسة.</div><label class="field">العنوان<input name="title" maxlength="120" required></label><label class="field">الرسالة<textarea name="message" maxlength="2000" required></textarea></label>', async (form) => { const result = await api('/broadcasts', { method: 'POST', body: JSON.stringify({ title: form.get('title'), message: form.get('message') }) }); toast(`تم إرسال الرسالة إلى ${result.data.recipients} مستخدم`); }, 'إرسال الرسالة');
+}
+async function openActivityModal(user) {
+  const result = await api(`/users/${user.id}/activity`); const rows = result.data || [];
+  openModal(`سجلات المستخدم — ${esc(user.full_name || user.email)}`, rows.length ? `<div class="sub-list">${rows.map((row) => `<div class="sub-item"><span><b>${esc(row.action)}</b><br><small>${esc(row.entity_type || '')}</small></span><small>${date(row.created_at)}</small></div>`).join('')}</div>` : '<div class="empty">لا توجد سجلات لهذا المستخدم.</div>', async () => {}, 'إغلاق');
 }
 
 async function actionForUser(actionName, userId, data) {
@@ -73,6 +84,7 @@ async function actionForUser(actionName, userId, data) {
   if (actionName === 'features') return openFeaturesModal(user);
   if (actionName === 'plan') return openPlanGrantModal(user);
   if (actionName === 'wallet') return openWalletModal(user);
+  if (actionName === 'activity') return openActivityModal(user);
   if (actionName === 'status') return action(async () => { await api(`/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ status: data.status }) }); await load(); toast('تم تحديث حالة الحساب'); });
 }
 

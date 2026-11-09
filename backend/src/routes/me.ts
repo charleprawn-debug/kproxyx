@@ -17,6 +17,23 @@ router.get('/', async (req, res) => {
   return res.json({ data });
 });
 
+router.get('/notifications', async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
+  const { data, error } = await supabaseAdmin.from('notifications').select('id,title,message,notification_type,category,action_url,is_read,created_at').eq('user_id', req.user!.id).order('created_at', { ascending: false }).limit(limit);
+  if (error) return res.status(500).json({ error: { code: 'NOTIFICATIONS_UNAVAILABLE', message: 'تعذر تحميل الإشعارات.' } });
+  return res.json({ data: data ?? [] });
+});
+router.patch('/notifications/:id/read', async (req, res) => {
+  const { data, error } = await supabaseAdmin.from('notifications').update({ is_read: true, read_at: new Date().toISOString() }).eq('id', req.params.id).eq('user_id', req.user!.id).select('id,is_read,read_at').single();
+  if (error || !data) return res.status(404).json({ error: { code: 'NOTIFICATION_NOT_FOUND', message: 'الإشعار غير موجود.' } });
+  return res.json({ data });
+});
+router.get('/activity', async (req, res) => {
+  const { data, error } = await supabaseAdmin.from('user_activity_logs').select('id,action,entity_type,entity_id,metadata,created_at').eq('user_id', req.user!.id).order('created_at', { ascending: false }).limit(100);
+  if (error) return res.status(500).json({ error: { code: 'ACTIVITY_UNAVAILABLE', message: 'تعذر تحميل السجل.' } });
+  return res.json({ data: data ?? [] });
+});
+
 router.get('/subscriptions', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('subscriptions').select('*,proxy_products(id,name,description,protocol,country_code,country_name,price_monthly,feature_flags),subscription_plans(id,name,description,price,currency,duration_days,feature_flags,free_claim_once,free_duration_minutes)').eq('user_id', req.user!.id).order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: { code: 'SUBSCRIPTIONS_UNAVAILABLE', message: 'Could not load subscriptions' } });
