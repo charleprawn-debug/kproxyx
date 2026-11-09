@@ -92,4 +92,18 @@ router.post('/forgot-password', async (req, res) => {
   return res.json({ data: { message: 'إذا كان البريد مسجلًا، سيصلك رابط آمن لإعادة تعيين كلمة المرور.' } });
 });
 
+router.post('/device-reset-password', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+  const fingerprint = deviceHash(req.body?.deviceId);
+  if (!/^\S+@\S+\.\S+$/.test(email) || newPassword.length < 8 || !fingerprint) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'أدخل البريد وكلمة مرور جديدة صالحة.' } });
+  const { data: profile } = await supabaseAdmin.from('users').select('id,auth_id').eq('email', email).maybeSingle();
+  const { data: binding } = await supabaseAdmin.from('device_account_bindings').select('user_id').eq('device_fingerprint_hash', fingerprint).maybeSingle();
+  if (!profile || !binding || binding.user_id !== profile.id) return res.status(403).json({ error: { code: 'DEVICE_ACCOUNT_MISMATCH', message: 'هذا البريد غير مرتبط بهذا الجهاز.' } });
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_id, { password: newPassword });
+  if (error) return res.status(503).json({ error: { code: 'PASSWORD_RESET_FAILED', message: 'تعذر تغيير كلمة المرور حاليًا.' } });
+  await supabaseAdmin.from('user_activity_logs').insert({ user_id: profile.id, action: 'device_password_reset', entity_type: 'user', entity_id: profile.id, metadata: { method: 'device_binding' } });
+  return res.json({ data: { message: 'تم تغيير كلمة المرور بنجاح. استخدم كلمة المرور الجديدة لتسجيل الدخول.' } });
+});
+
 export default router;

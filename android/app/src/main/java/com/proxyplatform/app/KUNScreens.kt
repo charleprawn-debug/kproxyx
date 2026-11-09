@@ -76,6 +76,7 @@ import java.util.Locale
 @Composable
 internal fun AuthScreen(vm: AppViewModel) {
     var register by remember { mutableStateOf(false) }
+    var recovery by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
@@ -178,23 +179,28 @@ internal fun AuthScreen(vm: AppViewModel) {
                     }
 
                     KUNPrimaryButton(
-                        text = if (register) "إنشاء الحساب" else "تسجيل الدخول",
+                        text = if (recovery) "تغيير كلمة المرور" else if (register) "إنشاء الحساب" else "تسجيل الدخول",
                         onClick = {
-                            if (register) vm.register(email, password, name) { register = false }
+                            if (recovery) vm.deviceResetPassword(email, password)
+                            else if (register) vm.register(email, password, name) { register = false }
                             else vm.login(email, password)
                         },
                         enabled = !vm.loading && email.isNotBlank() && password.length >= 8 && (!register || name.isNotBlank()),
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         loading = vm.loading,
                     )
-                    if (!register) {
+                    if (!register && !recovery) {
                         Text(
-                            "نسيت كلمة المرور؟ أرسل رابط استعادة آمن إلى بريدك",
-                            modifier = Modifier.fillMaxWidth().clickable { vm.forgotPassword(email) }.padding(8.dp),
+                            "نسيت كلمة المرور؟ تحقق من هذا الهاتف وغيّر كلمة المرور",
+                            modifier = Modifier.fillMaxWidth().clickable { recovery = true; vm.clearError() }.padding(8.dp),
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.bodySmall,
                         )
+                    }
+                    if (recovery) {
+                        Text("تحقق الجهاز يتم على الخادم. لن نعرض كلمة المرور القديمة؛ أدخل كلمة مرور جديدة.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("العودة لتسجيل الدخول", modifier = Modifier.fillMaxWidth().clickable { recovery = false; vm.clearError() }.padding(8.dp), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
