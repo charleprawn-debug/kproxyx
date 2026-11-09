@@ -2,6 +2,8 @@ package com.proxyplatform.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -234,7 +236,37 @@ internal class ApiClient(context: Context) {
     fun register(email: String, password: String, name: String) {
         request("/auth/register", "POST", JSONObject().put("email", email.trim()).put("password", password).put("fullName", name.trim()).put("deviceId", deviceRegistrationId()))
     }
-    fun notifications(): List<AppNotification> = request("/me/notifications").optJSONArray("data")?.let { rows -> (0 until rows.length()).map { i -> rows.getJSONObject(i).let { AppNotification(it.getString("id"), it.optString("title"), it.optString("message"), it.optBoolean("is_read"), it.optString("created_at")) } } } ?: emptyList()
+    fun notifications(): List<AppNotification> {
+        val result = request("/me/notifications").optJSONArray("data")?.let { rows ->
+            (0 until rows.length()).map { i -> rows.getJSONObject(i).let { AppNotification(it.getString("id"), it.optString("title"), it.optString("message"), it.optBoolean("is_read"), it.optString("created_at")) } }
+        } ?: emptyList()
+        showUnreadNotifications(result)
+        return result
+    }
+    private fun showUnreadNotifications(items: List<AppNotification>) {
+        if (items.none { !it.read }) return
+        runCatching {
+            val channelId = "kuncloak_announcements"
+            val manager = appContext.getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) manager.createNotificationChannel(
+                NotificationChannel(channelId, "إعلانات Kun cloak", NotificationManager.IMPORTANCE_DEFAULT).apply { description = "رسائل الإدارة والإعلانات العامة" }
+            )
+            val prefs = appContext.getSharedPreferences("shown_app_notifications", Context.MODE_PRIVATE)
+            items.filter { !it.read }.take(5).forEach { item ->
+                if (!prefs.getBoolean(item.id, false)) {
+                    val notification = android.app.Notification.Builder(appContext, channelId)
+                        .setSmallIcon(R.drawable.ic_notification_transparent)
+                        .setContentTitle(item.title.ifBlank { "إشعار من Kun cloak" })
+                        .setContentText(item.message)
+                        .setStyle(android.app.Notification.BigTextStyle().bigText(item.message))
+                        .setAutoCancel(true)
+                        .build()
+                    manager.notify(item.id.hashCode(), notification)
+                    prefs.edit().putBoolean(item.id, true).apply()
+                }
+            }
+        }
+    }
     fun markNotificationRead(id: String) { request("/me/notifications/$id/read", "PATCH", JSONObject()) }
     fun products(): List<Product> {
         val rows = request("/products").optJSONArray("data")
@@ -837,12 +869,6 @@ class MainActivity : ComponentActivity() {
                 .getBoolean("enabled", false)
         )
     }
-    var matchProxyLanguage by remember {
-        mutableStateOf(
-            context.getSharedPreferences("advanced_proxy_language_options", Context.MODE_PRIVATE)
-                .getBoolean("enabled", false)
-        )
-    }
     fun hasNotificationPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
         return ContextCompat.checkSelfPermission(
@@ -1130,23 +1156,13 @@ class MainActivity : ComponentActivity() {
                     } else {
                         null
                     }
-                    val proxyLanguage = if (matchProxyLanguage) {
-                        runCatching {
-                            locationController.fetchProxyLanguage(ProxyLocalService.localPort(context))
-                        }.getOrElse {
-                            AdvancedOperationLog.exception(context, "فشل اكتشاف لغة الهاتف عبر مخرج sing-box المحلي", it)
-                            return@withContext Result.failure(it)
-                        }
-                    } else {
-                        null
-                    }
                     AdvancedOperationLog.info(context, "أصبح المنفذ المحلي جاهزًا؛ بدء ضبط بروكسي نظام Android.")
                     val proxyResult = AdvancedSystemProxy.apply(context, expectedProxy)
                     val result = if (proxyResult.isFailure) {
                         proxyResult
                     } else {
                         val timezoneResult = if (proxyTimezone != null) AdvancedProxyTimezoneController.apply(context, proxyTimezone) else Result.success(Unit)
-                        if (timezoneResult.isFailure) timezoneResult else if (proxyLanguage != null) AdvancedProxyLanguageController.apply(context, proxyLanguage) else Result.success(Unit)
+                        timezoneResult
                     }
                     if (result.isSuccess &&
                         (!ProxyLocalService.isRunning(context) || !ProxyLocalService.isListenerReady(context))
@@ -1491,55 +1507,37 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        // Connection behavior options retained; UDP is handled automatically by the upstream capability.
-        item {
-            KUNCard {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.material3.Checkbox(
-                            checked = matchProxyTimezone,
-                            onCheckedChange = { enabled ->
-                                matchProxyTimezone = enabled
-                                context.getSharedPreferences(
-                                    "advanced_proxy_timezone_options",
-                                    Context.MODE_PRIVATE,
-                                ).edit().putBoolean("enabled", enabled).apply()
-                                error = null
-                            },
-                            enabled = !running && !starting && !checkingEndpoint && !stopping,
-                        )
-                        Text(
-                            "تعديل المنطقة الزمنية بما يناسب البروكسي",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    ExpandableDetails("تفاصيل تغيير المنطقة الزمنية") {
-                        Text(
-                            "تُحدد المنطقة الزمنية من بلد خروج البروكسي عبر GeoIP، وتُستعاد إعدادات الهاتف السابقة عند الإيقاف.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.material3.Checkbox(
-                            checked = matchProxyLanguage,
-                            onCheckedChange = { enabled ->
-                                matchProxyLanguage = enabled
-                                context.getSharedPreferences("advanced_proxy_language_options", Context.MODE_PRIVATE)
-                                    .edit().putBoolean("enabled", enabled).apply()
-                                error = null
-                            },
-                            enabled = !running && !starting && !checkingEndpoint && !stopping,
-                        )
-                        Text("تعديل لغة الهاتف بما يناسب البروكسي", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    }
-                    ExpandableDetails("تفاصيل تغيير اللغة") {
-                        Text(
-                            "تُحدد اللغة من دولة خروج البروكسي وتُطبّق على الهاتف عبر Wireless ADB. احرص على بقاء ADB متصلًا؛ قد تعيد بعض التطبيقات فتح واجهتها.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+        // ── Advanced-only timezone option ─────────────────────────────────────
+        if (mode == "advanced") {
+            item {
+                KUNCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.Checkbox(
+                                checked = matchProxyTimezone,
+                                onCheckedChange = { enabled ->
+                                    matchProxyTimezone = enabled
+                                    context.getSharedPreferences(
+                                        "advanced_proxy_timezone_options",
+                                        Context.MODE_PRIVATE,
+                                    ).edit().putBoolean("enabled", enabled).apply()
+                                    error = null
+                                },
+                                enabled = !running && !starting && !checkingEndpoint && !stopping,
+                            )
+                            Text(
+                                "تعديل المنطقة الزمنية بما يناسب البروكسي",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        ExpandableDetails("تفاصيل تغيير المنطقة الزمنية") {
+                            Text(
+                                "تُحدد المنطقة الزمنية من بلد خروج البروكسي عبر GeoIP، وتُستعاد إعدادات الهاتف السابقة عند الإيقاف.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

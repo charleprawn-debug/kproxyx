@@ -98,7 +98,12 @@ router.post('/broadcasts', async (req, res) => {
   const { data: users, error: usersError } = await supabaseAdmin.from('users').select('id').eq('status', 'active');
   if (usersError) return res.status(500).json({ error: { code: 'BROADCAST_USERS_UNAVAILABLE', message: 'تعذر تحميل المستخدمين.' } });
   const rows = (users ?? []).map((user) => ({ user_id: user.id, title, message, notification_type: 'admin_broadcast', category: 'system' }));
-  if (rows.length) { const { error } = await supabaseAdmin.from('notifications').insert(rows); if (error) return res.status(500).json({ error: { code: 'BROADCAST_FAILED', message: 'تعذر إرسال الرسالة.' } }); }
+  // Insert in bounded batches so a large user base receives the announcement
+  // reliably instead of depending on one oversized PostgREST request.
+  for (let offset = 0; offset < rows.length; offset += 500) {
+    const { error } = await supabaseAdmin.from('notifications').insert(rows.slice(offset, offset + 500));
+    if (error) return res.status(500).json({ error: { code: 'BROADCAST_FAILED', message: 'تعذر إرسال الرسالة.' } });
+  }
   await supabaseAdmin.from('audit_logs').insert({ action: 'broadcast_notification', entity_type: 'notification', new_values: { title, recipient_count: rows.length }, user_agent: req.get('user-agent') ?? null });
   return res.status(201).json({ data: { recipients: rows.length } });
 });
@@ -124,6 +129,7 @@ router.post('/users/:id/wallet', async (req, res) => {
   const { data: updated, error } = await supabaseAdmin.from('wallets').update({ balance: next, updated_at: new Date().toISOString() }).eq('user_id', req.params.id).select('*').single();
   if (error) return res.status(400).json({ error: { code: 'WALLET_UPDATE_FAILED', message: error.message } });
   await supabaseAdmin.from('wallet_transactions').insert({ user_id: req.params.id, amount, balance_after: next, transaction_type: amount > 0 ? 'admin_credit' : 'admin_debit', description: amount > 0 ? 'Admin wallet credit' : 'Admin wallet debit', metadata: { admin_id: req.user!.id } });
+  await supabaseAdmin.from('user_activity_logs').insert({ user_id: req.params.id, action: amount > 0 ? 'admin_wallet_credit' : 'admin_wallet_debit', entity_type: 'wallet', metadata: { amount, admin_id: req.user!.id } });
   return res.json({ data: updated });
 });
 
@@ -135,6 +141,7 @@ router.post('/users/:id/grant-plan', async (req, res) => {
   if (!plan || !plan.is_active) return res.status(404).json({ error: { code: 'PLAN_NOT_FOUND', message: 'Subscription plan not found or inactive' } });
   const { data, error } = await supabaseAdmin.from('subscriptions').insert({ user_id: req.params.id, product_id: null, subscription_plan_id: planId, status: 'active', duration_type: 'custom', started_at: new Date().toISOString(), expires_at: new Date(Date.now() + days * 86400000).toISOString(), auto_renew: false, will_renew: false }).select('*').single();
   if (error) return res.status(400).json({ error: { code: 'PLAN_GRANT_FAILED', message: error.message } });
+  await supabaseAdmin.from('user_activity_logs').insert({ user_id: req.params.id, action: 'admin_plan_granted', entity_type: 'subscription', entity_id: data.id, metadata: { plan_id: planId, days, admin_id: req.user!.id } });
   return res.status(201).json({ data });
 });
 
@@ -162,6 +169,7 @@ router.put('/users/:id/features', async (req, res) => {
   const results = await Promise.all(featureKeys.map((feature) => supabaseAdmin.from('user_feature_grants').upsert({ user_id: req.params.id, feature_key: feature, enabled: requested[feature] === true, expires_at: expiresAt, granted_by: req.user!.id }, { onConflict: 'user_id,feature_key' }).select('feature_key,enabled,expires_at').single()));
   const failed = results.find((result) => result.error);
   if (failed?.error) return res.status(400).json({ error: { code: 'FEATURES_UPDATE_FAILED', message: failed.error.message } });
+  await supabaseAdmin.from('user_activity_logs').insert({ user_id: req.params.id, action: 'admin_features_updated', entity_type: 'feature_grants', metadata: { features: requested, expires_at: expiresAt, admin_id: req.user!.id } });
   return res.json({ data: results.map((result) => result.data) });
 });
 

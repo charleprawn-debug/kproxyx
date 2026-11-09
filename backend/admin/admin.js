@@ -84,7 +84,7 @@ async function actionForUser(actionName, userId, data) {
   if (actionName === 'features') return openFeaturesModal(user);
   if (actionName === 'plan') return openPlanGrantModal(user);
   if (actionName === 'wallet') return openWalletModal(user);
-  if (actionName === 'activity') return openActivityModal(user);
+  if (actionName === 'activity') return action(() => openActivityModal(user));
   if (actionName === 'status') return action(async () => { await api(`/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ status: data.status }) }); await load(); toast('تم تحديث حالة الحساب'); });
 }
 

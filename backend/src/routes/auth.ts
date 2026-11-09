@@ -61,6 +61,13 @@ router.post('/register', async (req, res) => {
     if (binding.error.code === '23505') return res.status(409).json({ error: { code: 'DEVICE_ALREADY_REGISTERED', message: 'تم إنشاء حساب مسبقًا من هذا الجهاز. استخدم تسجيل الدخول للحساب الحالي.' } });
     return res.status(500).json({ error: { code: 'DEVICE_BINDING_FAILED', message: 'تعذر تثبيت الحساب على الجهاز.' } });
   }
+  await supabaseAdmin.from('user_activity_logs').insert({
+    user_id: profile.data.id,
+    action: 'account_registered',
+    entity_type: 'user',
+    entity_id: profile.data.id,
+    metadata: { device_bound: true },
+  });
   return res.status(201).json({ data: profile.data });
 });
 
@@ -69,6 +76,17 @@ router.post('/login', async (req, res) => {
   const { password } = req.body ?? {};
   const result = await supabaseClient.auth.signInWithPassword({ email, password });
   if (result.error || !result.data.session) return res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect' } });
+  const { data: profile } = await supabaseAdmin.from('users').select('id').eq('auth_id', result.data.user?.id ?? '').maybeSingle();
+  if (profile?.id) {
+    await supabaseAdmin.from('user_activity_logs').insert({
+      user_id: profile.id,
+      action: 'login',
+      entity_type: 'user',
+      entity_id: profile.id,
+      metadata: { method: 'password' },
+    });
+    await supabaseAdmin.from('users').update({ last_login_at: new Date().toISOString() }).eq('id', profile.id);
+  }
   // Login never creates a new device binding. Bindings are created only during registration,
   // so signing in from another device cannot silently make that device eligible for recovery.
   return res.json({ data: { accessToken: result.data.session.access_token, refreshToken: result.data.session.refresh_token, expiresAt: result.data.session.expires_at } });
