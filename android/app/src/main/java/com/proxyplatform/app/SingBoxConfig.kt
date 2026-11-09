@@ -15,18 +15,19 @@ object SingBoxConfig {
         password: String,
         localPort: Int = 10808,
         blockWebRtc: Boolean = false,
+        allowUdp: Boolean = false,
     ): File {
         val outbound = JSONObject()
             .put("type", if (protocol == "socks5") "socks" else protocol)
             .put("tag", "proxy")
             .put("server", host)
             .put("server_port", port)
-            // Residential SOCKS5 providers commonly expose CONNECT/TCP only.
-            // Keep the tunnel usable when UDP ASSOCIATE is unavailable.
-            .put("network", "tcp")
+            // TCP-only providers remain usable; when UDP ASSOCIATE succeeds,
+            // the network field is omitted so sing-box can relay TCP and UDP.
         if (protocol in setOf("vmess", "vless", "trojan", "shadowsocks")) {
             outbound.put("multiplex", JSONObject().put("enabled", true).put("protocol", "smux").put("max_connections", 4))
         }
+        if (!allowUdp) outbound.put("network", "tcp")
         if (username.isNotBlank()) {
             outbound.put("username", username)
             outbound.put("password", password)
@@ -75,16 +76,17 @@ object SingBoxConfig {
         password: String,
         includeMockLocationInbound: Boolean = false,
         blockWebRtc: Boolean = false,
+        allowUdp: Boolean = false,
     ): File {
         val outbound = JSONObject()
             .put("type", if (protocol == "socks5") "socks" else protocol)
             .put("tag", "proxy")
             .put("server", host)
             .put("server_port", port)
-            .put("network", "tcp")
         if (protocol in setOf("vmess", "vless", "trojan", "shadowsocks")) {
             outbound.put("multiplex", JSONObject().put("enabled", true).put("protocol", "smux").put("max_connections", 4))
         }
+        if (!allowUdp) outbound.put("network", "tcp")
         if (username.isNotBlank()) {
             outbound.put("username", username)
             outbound.put("password", password)

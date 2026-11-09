@@ -74,7 +74,8 @@ class ProxyLocalService : Service(), CommandServerHandler {
         val username = intent?.getStringExtra(EXTRA_USERNAME)?.trim().orEmpty()
         val password = intent?.getStringExtra(EXTRA_PASSWORD).orEmpty()
         val requestedLocalPort = intent?.getIntExtra(EXTRA_LOCAL_PORT, DEFAULT_LOCAL_PORT) ?: DEFAULT_LOCAL_PORT
-        val blockWebRtc = intent?.getBooleanExtra(EXTRA_BLOCK_WEBRTC, true) ?: true
+        val blockWebRtc = intent?.getBooleanExtra(EXTRA_BLOCK_WEBRTC, false) ?: false
+        val allowUdp = intent?.getBooleanExtra(EXTRA_ALLOW_UDP, false) ?: false
 
         if (host.isBlank() || port !in 1..65535 || protocol !in setOf("http", "socks", "socks5")) {
             AdvancedOperationLog.error(this, "بيانات upstream غير صالحة؛ لا تُسجّل بيانات الاعتماد.")
@@ -90,7 +91,7 @@ class ProxyLocalService : Service(), CommandServerHandler {
             )
             val localPort = findAvailableLocalPort(requestedLocalPort)
             AdvancedOperationLog.info(this, "المنفذ المحلي المختار: 127.0.0.1:$localPort.")
-            val config = SingBoxConfig.write(this, protocol, host, port, username, password, localPort, blockWebRtc)
+            val config = SingBoxConfig.write(this, protocol, host, port, username, password, localPort, blockWebRtc, allowUdp)
             AdvancedOperationLog.info(this, "تم إنشاء إعداد sing-box في مساحة التطبيق الخاصة.")
             val server = CommandServer(this, SingBoxPlatformInterface())
             server.start()
@@ -235,6 +236,7 @@ class ProxyLocalService : Service(), CommandServerHandler {
         const val EXTRA_PASSWORD = "password"
         const val EXTRA_LOCAL_PORT = "local_port"
         const val EXTRA_BLOCK_WEBRTC = "block_webrtc"
+        const val EXTRA_ALLOW_UDP = "allow_udp"
         const val DEFAULT_LOCAL_PORT = 10808
         const val PREFS = "proxy_vpn"
         const val KEY_RUNNING = "running"

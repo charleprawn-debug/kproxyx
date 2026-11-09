@@ -1077,7 +1077,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // ── Advanced mode: local system proxy (shared ADB configured separately) ─
-    fun launchAdvancedTunnel() {
+    fun launchAdvancedTunnel(allowUdp: Boolean) {
         error = null
         starting = true
         running = false
@@ -1089,7 +1089,7 @@ class MainActivity : ComponentActivity() {
         ProxyLocalService.clearLastError(context)
         runCatching {
             AdvancedOperationLog.info(context, "إرسال طلب تشغيل خدمة البروكسي المحلي إلى Android.")
-            startLocalProxyService(context, protocol, host, port, username, password, false)
+            startLocalProxyService(context, protocol, host, port, username, password, false, allowUdp)
         }.onFailure {
             AdvancedOperationLog.exception(context, "تعذر إرسال طلب تشغيل خدمة البروكسي", it)
             starting = false
@@ -1204,7 +1204,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun requestStartAdvanced() {
+    fun requestStartAdvanced(allowUdp: Boolean) {
         val currentState = WirelessDebuggingManager.checkState(context)
         if (!wirelessReady || currentState != WirelessDebuggingManager.DebuggingState.READY) {
             AdvancedOperationLog.error(context, "رُفض بدء الوضع المتقدم: اتصال Wireless ADB غير جاهز.")
@@ -1214,7 +1214,7 @@ class MainActivity : ComponentActivity() {
             )
             return
         }
-        launchAdvancedTunnel()
+        launchAdvancedTunnel(allowUdp)
     }
     fun stopAdvanced() {
         if (stopping) return
@@ -1244,7 +1244,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // ── Recommended mode: one-tap VpnService tunnel ─────────────────────────
-    fun launchVpnTunnel() {
+    fun launchVpnTunnel(allowUdp: Boolean) {
         error = null
         starting = true
         ProxyVpnService.clearLastError(context)
@@ -1259,6 +1259,7 @@ class MainActivity : ComponentActivity() {
                 password,
                 includeMockLocationInbound = mockLocation && locationMode == "auto",
                 blockWebRtc = false,
+                allowUdp = allowUdp,
             )
         }.onFailure {
             starting = false
@@ -1266,22 +1267,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    var allowUdpForNextStart by remember { mutableStateOf(false) }
+
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) launchVpnTunnel()
+        if (result.resultCode == Activity.RESULT_OK) launchVpnTunnel(allowUdpForNextStart)
         else {
             starting = false
             error = ProxyFailureMessages.connection(false, "VPN permission was denied")
         }
     }
 
-    fun requestStartVpn() {
+    fun requestStartVpn(allowUdp: Boolean) {
+        allowUdpForNextStart = allowUdp
         // Don't flip `starting` yet: VpnService.prepare() may show an async,
         // user-driven system dialog first. `starting` (and its 1.5s polling
         // window below) only starts once launchVpnTunnel() actually runs.
         val consent = VpnService.prepare(context)
-        if (consent != null) vpnPermissionLauncher.launch(consent) else launchVpnTunnel()
+        if (consent != null) vpnPermissionLauncher.launch(consent) else launchVpnTunnel(allowUdp)
     }
 
     fun stopVpn() {
@@ -1378,8 +1382,25 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
 
+            var allowUdp = false
+            if (protocol == "socks5") {
+                AdvancedOperationLog.info(context, "فحص دعم UDP اختياري؛ فشل الفحص لن يمنع اتصال TCP.")
+                val udpProbe = withContext(Dispatchers.IO) {
+                    ProxyEndpointProbe.checkSocks5UdpAssociation(
+                        host,
+                        parsedPort!!,
+                        if (auth) username else "",
+                        if (auth) password else "",
+                        timeoutMs = 2500,
+                        trace = { stage -> AdvancedOperationLog.info(context, "فحص SOCKS5 UDP: $stage") },
+                    )
+                }
+                allowUdp = udpProbe.isSuccess
+                if (allowUdp) AdvancedOperationLog.info(context, "يدعم البروكسي UDP؛ سيتم تمرير WebRTC عبره.")
+                else AdvancedOperationLog.info(context, "لا يدعم البروكسي UDP أو لم يرد؛ سيتم تشغيل TCP فقط بدون رفض الاتصال.")
+            }
             checkingEndpoint = false
-            if (mode == "vpn") requestStartVpn() else requestStartAdvanced()
+            if (mode == "vpn") requestStartVpn(allowUdp) else requestStartAdvanced(allowUdp)
         }
     }
 
@@ -1716,7 +1737,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun startLocalProxyService(context: Context, protocol: String, host: String, port: String, username: String, password: String, blockWebRtc: Boolean) {
+private fun startLocalProxyService(context: Context, protocol: String, host: String, port: String, username: String, password: String, blockWebRtc: Boolean, allowUdp: Boolean) {
     val intent = Intent(context, ProxyLocalService::class.java).apply {
         action = ProxyLocalService.ACTION_START
         putExtra(ProxyLocalService.EXTRA_PROTOCOL, protocol)
@@ -1725,6 +1746,7 @@ private fun startLocalProxyService(context: Context, protocol: String, host: Str
         putExtra(ProxyLocalService.EXTRA_USERNAME, username)
         putExtra(ProxyLocalService.EXTRA_PASSWORD, password)
         putExtra(ProxyLocalService.EXTRA_BLOCK_WEBRTC, blockWebRtc)
+        putExtra(ProxyLocalService.EXTRA_ALLOW_UDP, allowUdp)
         putExtra(ProxyLocalService.EXTRA_LOCAL_PORT, ProxyLocalService.DEFAULT_LOCAL_PORT)
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)

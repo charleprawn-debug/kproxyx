@@ -55,6 +55,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
         val password = intent?.getStringExtra(EXTRA_PASSWORD).orEmpty()
         val includeMockLocationInbound = intent?.getBooleanExtra(EXTRA_MOCK_LOCATION_INBOUND, false) ?: false
         val blockWebRtc = intent?.getBooleanExtra(EXTRA_BLOCK_WEBRTC, false) ?: false
+        val allowUdp = intent?.getBooleanExtra(EXTRA_ALLOW_UDP, false) ?: false
 
         if (host.isBlank() || port !in 1..65535 || protocol !in setOf("http", "socks", "socks5")) {
             AdvancedOperationLog.error(this, "بيانات upstream لنفق VPN غير صالحة؛ لا تُسجّل بيانات الاعتماد.")
@@ -80,6 +81,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
                 password,
                 includeMockLocationInbound,
                 blockWebRtc,
+                allowUdp,
             )
             val server = CommandServer(this, TunPlatformInterface(this))
             server.start()
@@ -271,6 +273,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
         const val EXTRA_PASSWORD = "password"
         const val EXTRA_MOCK_LOCATION_INBOUND = "include_mock_location_inbound"
         const val EXTRA_BLOCK_WEBRTC = "block_webrtc"
+        const val EXTRA_ALLOW_UDP = "allow_udp"
         const val MOCK_LOCATION_PROXY_PORT = 10809
         const val PREFS = "proxy_vpn_tun"
         const val KEY_RUNNING = "running"
@@ -297,6 +300,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
             password: String,
             includeMockLocationInbound: Boolean = false,
             blockWebRtc: Boolean = false,
+            allowUdp: Boolean = false,
         ) {
             val intent = Intent(context, ProxyVpnService::class.java).apply {
                 action = ACTION_START
@@ -307,6 +311,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
                 putExtra(EXTRA_PASSWORD, password)
                 putExtra(EXTRA_MOCK_LOCATION_INBOUND, includeMockLocationInbound)
                 putExtra(EXTRA_BLOCK_WEBRTC, blockWebRtc)
+                putExtra(EXTRA_ALLOW_UDP, allowUdp)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
         }
