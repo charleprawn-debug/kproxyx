@@ -30,6 +30,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -42,6 +44,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -221,16 +225,27 @@ internal fun MainShell(vm: AppViewModel) {
     LaunchedEffect(Unit) {
         vm.loadPlansAndWallet()
         vm.loadNotifications()
+        vm.loadSupportMessages(reset = true)
         while (true) {
             vm.updateWirelessState(withContext(Dispatchers.IO) { WirelessDebuggingManager.checkState(context) })
             delay(3_000)
+        }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            vm.loadNotifications()
+            vm.loadSupportMessages(reset = true)
         }
     }
     LaunchedEffect(screen) {
         AdvancedOperationLog.info(context, "App navigation: ${screen.name}.")
         vm.clearError()
         when (screen) {
-            Screen.PROFILE -> vm.loadProfile()
+            Screen.PROFILE -> {
+                vm.loadProfile()
+                vm.loadSupportMessages(reset = true)
+            }
             Screen.SUBSCRIPTIONS -> vm.loadSubscriptions()
             Screen.PROXY -> Unit
             Screen.SIM -> Unit
@@ -288,7 +303,22 @@ internal fun MainShell(vm: AppViewModel) {
                     NavigationBarItem(
                         selected = screen == destination,
                         onClick = { screen = destination },
-                        icon = { Icon(painterResource(iconId), contentDescription = label, modifier = Modifier.size(22.dp)) },
+                        icon = {
+                            val unreadCount = if (destination == Screen.PROFILE) vm.unreadSupportMessageCount else 0
+                            if (unreadCount > 0) {
+                                BadgedBox(
+                                    badge = {
+                                        Badge(containerColor = KunPalette.Error, contentColor = Color.White) {
+                                            Text(if (unreadCount > 99) "99+" else unreadCount.toString())
+                                        }
+                                    },
+                                ) {
+                                    Icon(painterResource(iconId), contentDescription = label, modifier = Modifier.size(22.dp))
+                                }
+                            } else {
+                                Icon(painterResource(iconId), contentDescription = label, modifier = Modifier.size(22.dp))
+                            }
+                        },
                         label = { Text(label, maxLines = 1) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -403,11 +433,36 @@ private fun SubscriptionCard(subscription: Subscription) {
 
 @Composable
 internal fun ProfileScreen(vm: AppViewModel, padding: PaddingValues, onWallet: () -> Unit, onPlans: () -> Unit) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
+    var selectedTab by remember { mutableStateOf(0) }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 1) vm.loadSupportMessages(reset = true)
+    }
+    Column(Modifier.fillMaxSize().padding(padding)) {
+        TabRow(selectedTabIndex = selectedTab) {
+            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("حسابي") })
+            Tab(
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 },
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("رسائل الدعم")
+                        if (vm.unreadSupportMessageCount > 0) {
+                            Badge(containerColor = KunPalette.Error, contentColor = Color.White) {
+                                Text(if (vm.unreadSupportMessageCount > 99) "99+" else vm.unreadSupportMessageCount.toString())
+                            }
+                        }
+                    }
+                },
+            )
+        }
+        if (selectedTab == 1) {
+            SupportInboxContent(vm, Modifier.weight(1f))
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
         item { PageHeading("إعدادات الحساب", "ملفي الشخصي", "معلومات حسابك وحالة التحقق من البريد الإلكتروني.") }
         if (vm.profileLoading && vm.profile == null) {
             item { StateCard("جارٍ تحميل الحساب", "نطلب معلومات الملف الشخصي من الخدمة.", loading = true) }
@@ -465,6 +520,80 @@ internal fun ProfileScreen(vm: AppViewModel, padding: PaddingValues, onWallet: (
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = KunPalette.Error),
             ) { Text("تسجيل الخروج", fontWeight = FontWeight.Bold) }
+        }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SupportInboxContent(vm: AppViewModel, modifier: Modifier = Modifier) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            PageHeading("رسائل الإدارة", "رسائل الدعم", "تُحفظ رسائل الإدارة هنا لتتمكن من الرجوع إليها في أي وقت.")
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                FeaturePill(
+                    "${vm.unreadSupportMessageCount} غير مقروءة",
+                    color = if (vm.unreadSupportMessageCount > 0) KunPalette.Error else KunPalette.Success,
+                    container = if (vm.unreadSupportMessageCount > 0) KunPalette.ErrorSoft else KunPalette.SuccessSoft,
+                )
+                OutlinedButton(onClick = { vm.loadSupportMessages(reset = true) }, enabled = !vm.supportMessagesLoading) {
+                    Text(if (vm.supportMessagesLoading) "جارٍ التحديث…" else "تحديث")
+                }
+            }
+        }
+        if (vm.supportMessagesLoading && vm.supportMessages.isEmpty()) {
+            item { StateCard("جارٍ تحميل رسائل الدعم", "نحدّث الرسائل المحفوظة لحسابك.", loading = true) }
+        } else if (vm.supportMessagesError != null && vm.supportMessages.isEmpty()) {
+            item {
+                StateCard(
+                    "تعذّر تحميل رسائل الدعم",
+                    vm.supportMessagesError.orEmpty(),
+                    error = true,
+                    actionLabel = "إعادة المحاولة",
+                    onAction = { vm.loadSupportMessages(reset = true) },
+                )
+            }
+        } else if (vm.supportMessages.isEmpty()) {
+            item { StateCard("لا توجد رسائل بعد", "ستظهر هنا الرسائل التي يرسلها فريق الدعم أو الإدارة إلى المستخدمين.") }
+        }
+        items(vm.supportMessages, key = { it.id }) { message ->
+            KUNCard(modifier = Modifier.clickable(enabled = !message.read) { vm.markNotificationRead(message.id) }) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(message.title.ifBlank { "رسالة من الدعم" }, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        FeaturePill(
+                            if (message.read) "مقروءة" else "جديدة",
+                            color = if (message.read) MaterialTheme.colorScheme.onSurfaceVariant else KunPalette.Error,
+                            container = if (message.read) KunPalette.SurfaceSoft else KunPalette.ErrorSoft,
+                        )
+                    }
+                    Text(readableDate(message.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(KunPalette.Border))
+                    Text(message.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    if (!message.read) {
+                        Text("اضغط على الرسالة لتحديدها كمقروءة", style = MaterialTheme.typography.labelSmall, color = KunPalette.Primary)
+                    }
+                }
+            }
+        }
+        if (vm.supportMessagesError != null && vm.supportMessages.isNotEmpty()) {
+            item { StateCard("تعذّر تحديث الرسائل", vm.supportMessagesError.orEmpty(), error = true, actionLabel = "إعادة المحاولة", onAction = { vm.loadSupportMessages(reset = true) }) }
+        }
+        if (vm.supportMessagesHasMore) {
+            item {
+                OutlinedButton(
+                    onClick = { vm.loadSupportMessages() },
+                    enabled = !vm.supportMessagesLoading,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (vm.supportMessagesLoading) "جارٍ تحميل الرسائل…" else "تحميل رسائل أقدم") }
+            }
         }
     }
 }
