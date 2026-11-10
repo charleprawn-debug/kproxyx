@@ -23,6 +23,37 @@ router.get('/notifications', async (req, res) => {
   if (error) return res.status(500).json({ error: { code: 'NOTIFICATIONS_UNAVAILABLE', message: 'تعذر تحميل الإشعارات.' } });
   return res.json({ data: data ?? [] });
 });
+router.get('/support-messages', async (req, res) => {
+  const requestedLimit = Number(req.query.limit ?? 50);
+  const requestedOffset = Number(req.query.offset ?? 0);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 100) : 50;
+  const offset = Number.isFinite(requestedOffset) ? Math.min(Math.max(Math.trunc(requestedOffset), 0), 1_000_000) : 0;
+  const userId = req.user!.id;
+  const [messagesResult, unreadResult] = await Promise.all([
+    supabaseAdmin.from('notifications')
+      .select('id,title,message,notification_type,category,is_read,created_at')
+      .eq('user_id', userId)
+      .eq('notification_type', 'admin_broadcast')
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + limit),
+    supabaseAdmin.from('notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('notification_type', 'admin_broadcast')
+      .eq('is_read', false),
+  ]);
+  if (messagesResult.error || unreadResult.error) {
+    return res.status(500).json({ error: { code: 'SUPPORT_MESSAGES_UNAVAILABLE', message: 'تعذر تحميل رسائل الدعم.' } });
+  }
+  const rows = messagesResult.data ?? [];
+  const hasMore = rows.length > limit;
+  return res.json({
+    data: rows.slice(0, limit),
+    unreadCount: unreadResult.count ?? 0,
+    hasMore,
+  });
+});
 router.patch('/notifications/:id/read', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('notifications').update({ is_read: true, read_at: new Date().toISOString() }).eq('id', req.params.id).eq('user_id', req.user!.id).select('id,is_read,read_at').single();
   if (error || !data) return res.status(404).json({ error: { code: 'NOTIFICATION_NOT_FOUND', message: 'الإشعار غير موجود.' } });
