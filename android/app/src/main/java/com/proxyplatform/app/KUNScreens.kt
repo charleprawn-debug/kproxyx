@@ -1,5 +1,7 @@
 package com.proxyplatform.app
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -75,6 +77,8 @@ import java.util.Locale
 
 @Composable
 internal fun AuthScreen(vm: AppViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) { vm.loadSupportSettings() }
     var mode by remember { mutableStateOf("login") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -125,23 +129,32 @@ internal fun AuthScreen(vm: AppViewModel) {
                         AuthModeButton("حساب جديد", mode == "register", Modifier.weight(1f)) { mode = "register"; vm.clearError() }
                         AuthModeButton("تغيير كلمة المرور", mode == "change", Modifier.weight(1f)) { mode = "change"; vm.clearError() }
                     }
-                    AnimatedContent(targetState = register) { showName ->
+                    AnimatedContent(targetState = register && !changePassword) { showName ->
                         if (showName) OutlinedTextField(
                             value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth(),
                             label = { Text("الاسم الكامل") }, singleLine = true, shape = RoundedCornerShape(16.dp),
                         ) else Spacer(Modifier.height(1.dp))
                     }
-                    OutlinedTextField(
-                        value = email, onValueChange = { email = it }, modifier = Modifier.fillMaxWidth(),
-                        label = { Text("البريد الإلكتروني") }, singleLine = true, shape = RoundedCornerShape(16.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                    )
-                    OutlinedTextField(
-                        value = password, onValueChange = { password = it }, modifier = Modifier.fillMaxWidth(),
-                        label = { Text(if (changePassword) "كلمة المرور الجديدة" else "كلمة المرور") }, singleLine = true,
-                        shape = RoundedCornerShape(16.dp), visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                    )
+                    if (!changePassword) {
+                        OutlinedTextField(
+                            value = email, onValueChange = { email = it }, modifier = Modifier.fillMaxWidth(),
+                            label = { Text("البريد الإلكتروني") }, singleLine = true, shape = RoundedCornerShape(16.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                        )
+                        OutlinedTextField(
+                            value = password, onValueChange = { password = it }, modifier = Modifier.fillMaxWidth(),
+                            label = { Text("كلمة المرور") }, singleLine = true,
+                            shape = RoundedCornerShape(16.dp), visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                        )
+                    } else {
+                        Surface(color = KunPalette.Primary.copy(alpha = 0.08f), shape = RoundedCornerShape(16.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Text("تحتاج إلى تغيير كلمة المرور؟", fontWeight = FontWeight.Bold)
+                                Text("تواصل مع فريق الدعم للتحقق من ملكية الحساب ومساعدتك بأمان.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                     AnimatedVisibility(visible = vm.error != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                         Surface(
                             color = if (vm.error?.startsWith("تم") == true) KunPalette.SuccessSoft else KunPalette.ErrorSoft,
@@ -153,15 +166,15 @@ internal fun AuthScreen(vm: AppViewModel) {
                         }
                     }
                     KUNPrimaryButton(
-                        text = when (mode) { "register" -> "إنشاء الحساب"; "change" -> "تأكيد تغيير كلمة المرور"; else -> "تسجيل الدخول" },
+                        text = when (mode) { "register" -> "إنشاء الحساب"; "change" -> "التواصل مع الدعم"; else -> "تسجيل الدخول" },
                         onClick = {
                             when (mode) {
                                 "register" -> vm.register(email, password, name) { mode = "login" }
-                                "change" -> vm.deviceResetPassword(email, password)
+                                "change" -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/${vm.supportTelegramUsername}")))
                                 else -> vm.login(email, password)
                             }
                         },
-                        enabled = !vm.loading && email.isNotBlank() && password.length >= 8 && (!register || name.isNotBlank()),
+                        enabled = !vm.loading && (changePassword || (email.isNotBlank() && password.length >= 8 && (!register || name.isNotBlank()))),
                         modifier = Modifier.fillMaxWidth().height(56.dp), loading = vm.loading,
                     )
                 }

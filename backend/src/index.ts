@@ -32,6 +32,11 @@ export function createApp() {
     if (error) return res.json({ data: { downloadUrl: '' }, warning: 'Landing settings migration is pending' });
     return res.json({ data: { downloadUrl: data?.value ?? '' } });
   });
+  app.get('/api/v1/support-settings', async (_req, res) => {
+    const { data, error } = await supabaseAdmin.from('app_settings').select('value').eq('key', 'support_telegram_username').maybeSingle();
+    if (error) return res.json({ data: { telegramUsername: 'eng_Eyad_saleh' } });
+    return res.json({ data: { telegramUsername: (data?.value ?? 'eng_Eyad_saleh').replace(/^@/, '') } });
+  });
   app.get('/api/v1/app-update', async (req, res) => {
     const versionCode = Math.max(0, Number(req.query.versionCode ?? 0));
     const { data, error } = await supabaseAdmin.from('app_settings').select('key,value').in('key', ['app_update_enabled', 'app_min_version_code', 'app_update_message', 'app_update_url', 'landing_download_url']);

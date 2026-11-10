@@ -41,6 +41,20 @@ router.put('/landing-settings', async (req, res) => {
   return res.json({ data: { downloadUrl: data.value, updatedAt: data.updated_at } });
 });
 
+router.get('/support-settings', async (_req, res) => {
+  const { data, error } = await supabaseAdmin.from('app_settings').select('key,value,updated_at').eq('key', 'support_telegram_username').maybeSingle();
+  if (error) return res.status(500).json({ error: { code: 'SUPPORT_SETTINGS_UNAVAILABLE', message: 'تعذر تحميل حساب الدعم.' } });
+  return res.json({ data: { telegramUsername: (data?.value ?? 'eng_Eyad_saleh').replace(/^@/, ''), updatedAt: data?.updated_at ?? null } });
+});
+
+router.put('/support-settings', async (req, res) => {
+  const telegramUsername = typeof req.body?.telegramUsername === 'string' ? req.body.telegramUsername.trim().replace(/^@/, '') : '';
+  if (!/^[A-Za-z0-9_]{5,64}$/.test(telegramUsername)) return res.status(400).json({ error: { code: 'INVALID_SUPPORT_USERNAME', message: 'أدخل اسم حساب Telegram صالحًا.' } });
+  const { data, error } = await supabaseAdmin.from('app_settings').upsert({ key: 'support_telegram_username', value: telegramUsername, updated_at: new Date().toISOString() }, { onConflict: 'key' }).select('key,value,updated_at').single();
+  if (error) return res.status(400).json({ error: { code: 'SUPPORT_SETTINGS_SAVE_FAILED', message: 'تعذر حفظ حساب الدعم.' } });
+  return res.json({ data: { telegramUsername: data.value, updatedAt: data.updated_at } });
+});
+
 router.get('/app-update-settings', async (_req, res) => {
   const { data, error } = await supabaseAdmin.from('app_settings').select('key,value,updated_at').in('key', ['app_update_enabled', 'app_min_version_code', 'app_update_message', 'app_update_url']);
   if (error) return res.status(500).json({ error: { code: 'APP_UPDATE_SETTINGS_UNAVAILABLE', message: 'تعذر تحميل إعدادات التحديث.' } });
@@ -116,6 +130,30 @@ router.patch('/users/:id', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('users').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', req.params.id).select('id,email,role,status').single();
   if (error) return res.status(400).json({ error: { code: 'USER_UPDATE_FAILED', message: error.message } });
   return res.json({ data });
+});
+
+router.post('/users/:id/password', async (req, res) => {
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (password.length < 8 || password.length > 128) return res.status(400).json({ error: { code: 'INVALID_PASSWORD', message: 'كلمة المرور يجب أن تكون بين 8 و128 محرفًا.' } });
+  const { data: profile, error: profileError } = await supabaseAdmin.from('users').select('id,auth_id,email').eq('id', req.params.id).maybeSingle();
+  if (profileError || !profile) return res.status(404).json({ error: { code: 'USER_NOT_FOUND', message: 'المستخدم غير موجود.' } });
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_id, { password });
+  if (error) return res.status(400).json({ error: { code: 'PASSWORD_UPDATE_FAILED', message: 'تعذر تغيير كلمة مرور المستخدم.' } });
+  await supabaseAdmin.from('user_activity_logs').insert({ user_id: profile.id, action: 'admin_password_reset', entity_type: 'user', entity_id: profile.id, metadata: { admin_id: req.user!.id } });
+  return res.json({ data: { id: profile.id, email: profile.email } });
+});
+
+router.delete('/users/:id', async (req, res) => {
+  const { data: profile, error: profileError } = await supabaseAdmin.from('users').select('id,auth_id,email').eq('id', req.params.id).maybeSingle();
+  if (profileError || !profile) return res.status(404).json({ error: { code: 'USER_NOT_FOUND', message: 'المستخدم غير موجود.' } });
+  if (profile.id === req.user!.id) return res.status(400).json({ error: { code: 'SELF_DELETE_FORBIDDEN', message: 'لا يمكن حذف حساب الأدمن الحالي.' } });
+  const { error: bindingError } = await supabaseAdmin.from('device_account_bindings').delete().eq('user_id', profile.id);
+  if (bindingError) return res.status(400).json({ error: { code: 'ACCOUNT_DELETE_FAILED', message: 'تعذر تحرير ربط الجهاز.' } });
+  const { error: profileDeleteError } = await supabaseAdmin.from('users').delete().eq('id', profile.id);
+  if (profileDeleteError) return res.status(400).json({ error: { code: 'ACCOUNT_DELETE_FAILED', message: 'تعذر حذف ملف المستخدم.' } });
+  const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(profile.auth_id);
+  if (authDeleteError) return res.status(400).json({ error: { code: 'ACCOUNT_DELETE_AUTH_FAILED', message: 'تم حذف ملف المستخدم لكن تعذر حذف سجل المصادقة؛ راجع السجلات.' } });
+  return res.json({ data: { id: profile.id, email: profile.email, deleted: true } });
 });
 
 router.post('/users/:id/wallet', async (req, res) => {
