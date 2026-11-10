@@ -2,10 +2,13 @@ package com.proxyplatform.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -14,7 +17,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,38 +29,27 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -70,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -80,21 +72,24 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.ViewModel
-import com.proxyplatform.app.adb.PairingCodeInput
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 internal data class Product(
     val id: String,
@@ -126,13 +121,27 @@ internal data class RemoteProxy(val id: String, val protocol: String, val host: 
 internal data class PurchasedProxy(val protocol: String, val host: String, val port: Int, val username: String, val password: String, val url: String, val expiresAt: String)
 internal data class Profile(val email: String, val name: String, val role: String, val verified: Boolean)
 internal data class Subscription(val status: String, val expires: String, val product: String, val protocol: String)
-internal data class Plan(val id: String, val name: String, val description: String, val monthly: String, val duration: String, val features: Set<String>, val featured: Boolean)
+internal data class Plan(val id: String, val name: String, val description: String, val monthly: String, val duration: String, val features: Set<String>, val featured: Boolean, val freeClaimOnce: Boolean = false, val freeDurationMinutes: Int = 0)
+internal data class AppUpdateState(val required: Boolean, val message: String, val updateUrl: String)
 internal data class Wallet(val balance: Double, val currency: String)
 internal data class WalletTransaction(val amount: Double, val description: String, val type: String, val createdAt: String)
 internal data class TopUpMethod(val code: String, val name: String, val currency: String, val network: String, val address: String, val minAmount: Double, val exchangeRate: Double, val instructions: String)
 internal data class TopUpRequest(val id: String, val methodCode: String, val amount: Double, val currency: String, val expectedUsd: Double, val reference: String, val status: String, val createdAt: String)
 internal data class FeatureAccess(val advanced: Boolean = false, val sim: Boolean = false, val vpn: Boolean = false, val mockLocation: Boolean = false)
-internal enum class Screen { MARKET, SUBSCRIPTIONS, PROXY, SIM, PROFILE, WALLET }
+internal data class AppNotification(
+    val id: String,
+    val title: String,
+    val message: String,
+    val read: Boolean,
+    val createdAt: String,
+    val type: String = "",
+)
+internal data class SupportMessagesPage(
+    val messages: List<AppNotification>,
+    val unreadCount: Int,
+    val hasMore: Boolean,
+)
+internal enum class Screen { SUBSCRIPTIONS, PROXY, SIM, ADB, PROFILE, WALLET }
 
 private val SuccessGreen = KunPalette.Success
 private val SuccessGreenContainer = KunPalette.SuccessSoft
@@ -153,36 +162,156 @@ private class SessionStore(context: Context) {
     private val prefs = context.getSharedPreferences("proxy_session", Context.MODE_PRIVATE)
     var accessToken: String? get() = prefs.getString("access_token", null); set(value) { prefs.edit().putString("access_token", value).apply() }
     var refreshToken: String? get() = prefs.getString("refresh_token", null); set(value) { prefs.edit().putString("refresh_token", value).apply() }
+    var expiresAt: Long get() = prefs.getLong("expires_at", 0L); set(value) { prefs.edit().putLong("expires_at", value).apply() }
     fun clear() = prefs.edit().clear().apply()
 }
 
 internal class ApiClient(context: Context) {
     private val appContext = context.applicationContext
     private val store = SessionStore(appContext)
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
+        .build()
     private val jsonType = "application/json".toMediaType()
+    private val refreshLock = Any()
+
+    private data class HttpResult(val code: Int, val body: JSONObject)
+
+    private fun execute(path: String, method: String, body: JSONObject?, token: String?): HttpResult {
+        val builder = Request.Builder()
+            .url(BuildConfig.API_BASE_URL.trimEnd('/') + path)
+            .header("Accept", "application/json")
+        token?.let { builder.header("Authorization", "Bearer $it") }
+        if (body != null) builder.method(method, body.toString().toRequestBody(jsonType)) else builder.method(method, null)
+        client.newCall(builder.build()).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            return HttpResult(response.code, if (raw.isBlank()) JSONObject() else JSONObject(raw))
+        }
+    }
+
+    private fun saveSession(data: JSONObject) {
+        store.accessToken = data.getString("accessToken")
+        data.optString("refreshToken").takeIf { it.isNotBlank() }?.let { store.refreshToken = it }
+        data.optLong("expiresAt", 0L).takeIf { it > 0L }?.let { store.expiresAt = it }
+    }
+
+    private fun refreshAccessToken(expectedAccessToken: String?): Boolean {
+        synchronized(refreshLock) {
+            val current = store.accessToken
+            if (current.isNullOrBlank()) return false
+            // Another request may have refreshed the token while this request waited.
+            if (!expectedAccessToken.isNullOrBlank() && current != expectedAccessToken) return true
+            val refreshToken = store.refreshToken?.takeIf { it.isNotBlank() } ?: return false
+            return try {
+                val result = execute("/auth/refresh", "POST", JSONObject().put("refreshToken", refreshToken), null)
+                if (result.code !in 200..299) {
+                    store.clear()
+                    false
+                } else {
+                    saveSession(result.body.getJSONObject("data"))
+                    true
+                }
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
+    private fun tokenNeedsRefresh(): Boolean = store.expiresAt > 0L &&
+        store.expiresAt <= (System.currentTimeMillis() / 1000L) + 60L
+
     private fun request(path: String, method: String = "GET", body: JSONObject? = null): JSONObject {
         AdvancedOperationLog.info(appContext, "HTTP $method $path — بيانات الاعتماد ومتن الطلب لا تُسجّل.")
-        val builder = Request.Builder().url(BuildConfig.API_BASE_URL.trimEnd('/') + path).header("Accept", "application/json")
-        store.accessToken?.let { builder.header("Authorization", "Bearer " + it) }
-        if (body != null) builder.method(method, body.toString().toRequestBody(jsonType)) else builder.method(method, null)
         return try {
-            client.newCall(builder.build()).execute().use { response ->
-                AdvancedOperationLog.info(appContext, "HTTP $method $path -> ${response.code}.")
-                val raw = response.body?.string().orEmpty(); val result = if (raw.isBlank()) JSONObject() else JSONObject(raw)
-                if (!response.isSuccessful) {
-                    AdvancedOperationLog.error(appContext, "HTTP request failed with status ${response.code}.")
-                    throw IllegalStateException(result.optJSONObject("error")?.optString("message") ?: "فشل الطلب (" + response.code + ")")
-                }
-                result
+            if (!path.startsWith("/auth/") && tokenNeedsRefresh()) refreshAccessToken(store.accessToken)
+            val firstToken = store.accessToken
+            var result = execute(path, method, body, firstToken)
+            if (result.code == 401 && !path.startsWith("/auth/") && refreshAccessToken(firstToken)) {
+                result = execute(path, method, body, store.accessToken)
             }
+            AdvancedOperationLog.info(appContext, "HTTP $method $path -> ${result.code}.")
+            if (result.code !in 200..299) {
+                AdvancedOperationLog.error(appContext, "HTTP request failed with status ${result.code}.")
+                throw IllegalStateException(result.body.optJSONObject("error")?.optString("message") ?: "فشل الطلب (${result.code})")
+            }
+            result.body
         } catch (failure: Exception) {
             AdvancedOperationLog.error(appContext, "HTTP $method $path exception: ${failure.javaClass.simpleName}.")
             throw failure
         }
     }
-    fun login(email: String, password: String) { val d = request("/auth/login", "POST", JSONObject().put("email", email.trim()).put("password", password)).getJSONObject("data"); store.accessToken = d.getString("accessToken"); store.refreshToken = d.optString("refreshToken") }
-    fun register(email: String, password: String, name: String) { request("/auth/register", "POST", JSONObject().put("email", email.trim()).put("password", password).put("fullName", name.trim())) }
+    fun login(email: String, password: String) { saveSession(request("/auth/login", "POST", JSONObject().put("email", email.trim()).put("password", password).put("deviceId", deviceRegistrationId())).getJSONObject("data")) }
+    fun forgotPassword(email: String) { request("/auth/forgot-password", "POST", JSONObject().put("email", email.trim())) }
+    fun deviceResetPassword(email: String, newPassword: String) { request("/auth/device-reset-password", "POST", JSONObject().put("email", email.trim()).put("newPassword", newPassword).put("deviceId", deviceRegistrationId())) }
+    private fun deviceRegistrationId(): String {
+        return Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID).orEmpty().trim()
+    }
+    fun register(email: String, password: String, name: String) {
+        request("/auth/register", "POST", JSONObject().put("email", email.trim()).put("password", password).put("fullName", name.trim()).put("deviceId", deviceRegistrationId()))
+    }
+    fun supportTelegramUsername(): String {
+        val result = execute("/support-settings", "GET", null, null)
+        if (result.code !in 200..299) return "eng_Eyad_saleh"
+        return result.body.optJSONObject("data")?.optString("telegramUsername", "eng_Eyad_saleh")?.removePrefix("@").orEmpty().ifBlank { "eng_Eyad_saleh" }
+    }
+    fun notifications(): List<AppNotification> {
+        val result = request("/me/notifications").optJSONArray("data")?.let { rows ->
+            (0 until rows.length()).map { i -> rows.getJSONObject(i).let { AppNotification(it.getString("id"), it.optString("title"), it.optString("message"), it.optBoolean("is_read"), it.optString("created_at"), it.optString("notification_type")) } }
+        } ?: emptyList()
+        showUnreadNotifications(result)
+        return result
+    }
+    fun supportMessages(offset: Int, limit: Int = 50): SupportMessagesPage {
+        val safeOffset = offset.coerceIn(0, 1_000_000)
+        val safeLimit = limit.coerceIn(1, 100)
+        val body = request("/me/support-messages?offset=$safeOffset&limit=$safeLimit")
+        val rows = body.optJSONArray("data")
+        val messages = if (rows == null) emptyList() else (0 until rows.length()).map { index ->
+            rows.getJSONObject(index).let { item ->
+                AppNotification(
+                    id = item.getString("id"),
+                    title = item.optString("title"),
+                    message = item.optString("message"),
+                    read = item.optBoolean("is_read", false),
+                    createdAt = item.optString("created_at"),
+                    type = item.optString("notification_type"),
+                )
+            }
+        }
+        return SupportMessagesPage(
+            messages = messages,
+            unreadCount = body.optInt("unreadCount", 0).coerceAtLeast(0),
+            hasMore = body.optBoolean("hasMore", false),
+        )
+    }
+    private fun showUnreadNotifications(items: List<AppNotification>) {
+        if (items.none { !it.read }) return
+        runCatching {
+            val channelId = "kuncloak_announcements"
+            val manager = appContext.getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) manager.createNotificationChannel(
+                NotificationChannel(channelId, "إعلانات Kun cloak", NotificationManager.IMPORTANCE_DEFAULT).apply { description = "رسائل الإدارة والإعلانات العامة" }
+            )
+            val prefs = appContext.getSharedPreferences("shown_app_notifications", Context.MODE_PRIVATE)
+            items.filter { !it.read }.take(5).forEach { item ->
+                if (!prefs.getBoolean(item.id, false)) {
+                    val notification = android.app.Notification.Builder(appContext, channelId)
+                        .setSmallIcon(R.drawable.ic_notification_transparent)
+                        .setContentTitle(item.title.ifBlank { "إشعار من Kun cloak" })
+                        .setContentText(item.message)
+                        .setStyle(android.app.Notification.BigTextStyle().bigText(item.message))
+                        .setAutoCancel(true)
+                        .build()
+                    manager.notify(item.id.hashCode(), notification)
+                    prefs.edit().putBoolean(item.id, true).apply()
+                }
+            }
+        }
+    }
+    fun markNotificationRead(id: String) { request("/me/notifications/$id/read", "PATCH", JSONObject()) }
     fun products(): List<Product> {
         val rows = request("/products").optJSONArray("data")
             ?: throw IllegalStateException("استجابة السوق غير صالحة.")
@@ -210,21 +339,21 @@ internal class ApiClient(context: Context) {
         return (0 until a.length()).map { i -> val x = a.getJSONObject(i); MarketplaceProvider(x.getString("id"), x.optInt("number"), x.optString("name"), x.optString("description")) }
     }
     fun proxyPurchaseOptions(provider: String = "ezproxy", serviceId: String = "", planId: String = ""): ProxyPurchaseOptions {
-        val enc = { v: String -> java.net.URLEncoder.encode(v, "UTF-8") }
-        val query = "provider=${enc(provider)}&protocol=socks5" + (if (serviceId.isNotBlank()) "&serviceId=${enc(serviceId)}" else "") + (if (planId.isNotBlank()) "&planId=${enc(planId)}" else "")
+        val enc = { value: String -> java.net.URLEncoder.encode(value, "UTF-8") }
+        val query = "provider=${enc(provider)}&protocol=socks5" + (if (serviceId.isNotBlank()) "&serviceId=${enc(serviceId)}&planId=${enc(planId)}" else "")
         val x = request("/products/purchase-options?$query").getJSONObject("data")
         val plans = x.getJSONArray("plans").let { a -> (0 until a.length()).map { i -> val p = a.getJSONObject(i); val label = p.optJSONObject("name")?.optString("ar").orEmpty().ifBlank { p.optJSONObject("name")?.optString("en") ?: p.optString("name", "خطة") }; ProxyPurchasePlan(p.optString("id", p.optString("code")), label, p.optInt("duration_hours"), p.optDouble("price"), p.optString("serviceId"), p.optString("providerPlanId")) } }
-        val locations = x.getJSONArray("locations").let { a -> (0 until a.length()).map { i -> val l = a.getJSONObject(i); val c = l.optJSONObject("country"); val protocols = l.optJSONObject("protocols"); ProxyPurchaseLocation(l.optString("id"), c?.optString("code").orEmpty().ifBlank { l.optString("country") }, c?.optString("name").orEmpty().ifBlank { l.optString("country") }, l.optString("state"), l.optString("isp"), setOf("http", "socks5").filter { protocols?.optBoolean(it, true) != false }.toSet()) } }
+        val locations = x.getJSONArray("locations").let { a -> (0 until a.length()).map { i -> val l = a.getJSONObject(i); val c = l.optJSONObject("country"); val protocols = l.optJSONObject("protocols"); ProxyPurchaseLocation(l.optString("id"), l.optString("countryCode").ifBlank { l.optString("country_code") }.ifBlank { c?.optString("code").orEmpty() }.ifBlank { l.optString("country") }, c?.optString("name").orEmpty().ifBlank { l.optString("country") }, l.optString("state"), l.optString("isp"), setOf("http", "socks5").filter { protocols?.optBoolean(it, true) != false }.toSet()) } }
         return ProxyPurchaseOptions(x.optString("provider", provider), x.optString("protocol", "socks5"), plans, locations, x.optString("serviceId"), x.optString("proxyType"), x.optString("selectedPlanId"))
     }
-    fun purchaseProxy(options: ProxyPurchaseOptions, plan: ProxyPurchasePlan, locationId: String, username: String, password: String): PurchasedProxy {
-        val body = JSONObject().put("clientRequestId", UUID.randomUUID().toString()).put("provider", options.provider).put("serviceId", options.serviceId).put("planId", if (plan.providerPlanId.isNotBlank()) plan.providerPlanId else plan.id).put("locationId", locationId).put("country", locationId).put("protocol", options.protocol).put("username", username).put("password", password).put("periodMonths", 1).put("trafficGb", 1).put("rotation", -1)
+    fun purchaseProxy(options: ProxyPurchaseOptions, plan: ProxyPurchasePlan, location: ProxyPurchaseLocation, username: String, password: String): PurchasedProxy {
+        val body = JSONObject().put("clientRequestId", UUID.randomUUID().toString()).put("provider", options.provider).put("serviceId", options.serviceId).put("planId", if (plan.providerPlanId.isNotBlank()) plan.providerPlanId else plan.id).put("locationId", location.id).put("country", location.countryCode).put("protocol", options.protocol).put("username", username).put("password", password).put("periodMonths", 1).put("trafficGb", 1).put("rotation", -1)
         val x = request("/products/purchase-proxy", "POST", body).getJSONObject("data").getJSONObject("proxy")
         return PurchasedProxy(x.optString("protocol", options.protocol), x.getString("host"), x.getInt("port"), x.optString("username", username), x.optString("password", password), x.optString("url"), x.optString("expires_at"))
     }
     fun proxyQuote(options: ProxyPurchaseOptions, plan: ProxyPurchasePlan, location: ProxyPurchaseLocation): Double? {
         if (options.provider == "ezproxy") return plan.price
-        val x = request("/products/purchase-quote", "POST", JSONObject().put("provider", options.provider).put("serviceId", options.serviceId).put("planId", if (plan.providerPlanId.isNotBlank()) plan.providerPlanId else plan.id).put("locationId", location.id).put("country", location.country)).getJSONObject("data")
+        val x = request("/products/purchase-quote", "POST", JSONObject().put("provider", options.provider).put("serviceId", options.serviceId).put("planId", if (plan.providerPlanId.isNotBlank()) plan.providerPlanId else plan.id).put("locationId", location.id).put("country", location.countryCode)).getJSONObject("data")
         return if (x.isNull("price")) null else x.optDouble("price", Double.NaN).takeIf { it.isFinite() }
     }
     fun proxies(): List<RemoteProxy> {
@@ -233,7 +362,7 @@ internal class ApiClient(context: Context) {
     }
     fun profile(): Profile { val x = request("/me").getJSONObject("data"); return Profile(x.optString("email"), x.optString("full_name", "بدون اسم"), x.optString("role", "user"), x.optBoolean("is_email_verified")) }
     fun subscriptions(): List<Subscription> { val a = request("/me/subscriptions").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val p = x.optJSONObject("subscription_plans") ?: x.optJSONObject("proxy_products"); Subscription(x.optString("status"), x.optString("expires_at"), p?.optString("name", "الاشتراك") ?: "الاشتراك", p?.optString("protocol", "اشتراك") ?: "اشتراك") } }
-    fun plans(): List<Plan> { val a = request("/me/subscription-plans").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val flags = x.optJSONObject("feature_flags"); val features = listOf("advanced", "sim", "vpn", "mock_location").filter { flags?.optBoolean(it, false) == true }.toSet(); Plan(x.getString("id"), x.optString("name"), x.optString("description"), formatProductPrice(x.optDouble("price", Double.NaN), x.optInt("duration_days", 30).toString() + " يوم"), x.optInt("duration_days", 30).toString() + " يوم", features, x.optBoolean("is_featured")) } }
+    fun plans(): List<Plan> { val a = request("/me/subscription-plans").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val flags = x.optJSONObject("feature_flags"); val features = listOf("advanced", "sim", "vpn", "mock_location").filter { flags?.optBoolean(it, false) == true }.toSet(); Plan(x.getString("id"), x.optString("name"), x.optString("description"), formatProductPrice(x.optDouble("price", Double.NaN), x.optInt("duration_days", 30).toString() + " يوم"), x.optInt("duration_days", 30).toString() + " يوم", features, x.optBoolean("is_featured"), x.optBoolean("free_claim_once"), x.optInt("free_duration_minutes", 0)) } }
     fun wallet(): Wallet { val x = request("/me/wallet").getJSONObject("data"); return Wallet(x.optDouble("balance", 0.0), x.optString("currency", "USD")) }
     fun walletTransactions(): List<WalletTransaction> { val a = request("/me/wallet/transactions").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); WalletTransaction(x.optDouble("amount", 0.0), x.optString("description"), x.optString("transaction_type"), x.optString("created_at")) } }
     fun topUpMethods(): List<TopUpMethod> { val a = request("/me/wallet/top-up/methods").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); TopUpMethod(x.optString("code"), x.optString("name"), x.optString("currency"), x.optString("network"), x.optString("address"), x.optDouble("min_amount", 0.0), x.optDouble("exchange_rate", 1.0), x.optString("instructions")) } }
@@ -241,15 +370,53 @@ internal class ApiClient(context: Context) {
     fun createTopUp(methodCode: String, amount: Double): TopUpRequest { val x = request("/me/wallet/top-up/requests", "POST", JSONObject().put("methodCode", methodCode).put("amount", amount)).getJSONObject("data"); return TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) }
     fun verifyTopUp(id: String, reference: String): TopUpRequest { val x = request("/me/wallet/top-up/requests/$id/verify", "POST", JSONObject().put("transactionReference", reference)).getJSONObject("data"); return TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) }
     fun featureAccess(): FeatureAccess { val x = request("/me/access").getJSONObject("data"); return FeatureAccess(x.optBoolean("advanced"), x.optBoolean("sim"), x.optBoolean("vpn"), x.optBoolean("mock_location")) }
+    fun checkForUpdate(): AppUpdateState {
+        val result = execute("/app-update?versionCode=${BuildConfig.VERSION_CODE}", "GET", null, null)
+        if (result.code !in 200..299) return AppUpdateState(false, "", "")
+        val data = result.body.optJSONObject("data") ?: return AppUpdateState(false, "", "")
+        return AppUpdateState(data.optBoolean("required"), data.optString("message"), data.optString("updateUrl"))
+    }
     fun activatePlan(id: String) { request("/me/subscription-plans/$id/activate", "POST", JSONObject()) }
+    fun savedProxies(): List<SavedProxy> {
+        val a = request("/me/saved-proxies").getJSONArray("data")
+        return (0 until a.length()).map { i -> val x = a.getJSONObject(i); SavedProxy(x.optString("id"), x.optString("name"), x.optString("protocol", "socks5"), x.optString("host"), x.optInt("port"), x.optBoolean("authenticationRequired"), x.optString("username"), x.optString("password"), x.optBoolean("selected")) }
+    }
+    fun saveSavedProxy(profile: SavedProxy): SavedProxy {
+        val x = request("/me/saved-proxies", "POST", JSONObject().put("id", profile.id).put("name", profile.name).put("protocol", profile.protocol).put("host", profile.host).put("port", profile.port).put("authenticationRequired", profile.authenticationRequired).put("username", profile.username).put("password", profile.password)).getJSONObject("data")
+        return SavedProxy(x.optString("id", profile.id), x.optString("name", profile.name), x.optString("protocol", profile.protocol), x.optString("host", profile.host), x.optInt("port", profile.port), x.optBoolean("authenticationRequired", profile.authenticationRequired), x.optString("username", profile.username), x.optString("password", profile.password), x.optBoolean("selected", true))
+    }
+    fun deleteSavedProxy(id: String) { request("/me/saved-proxies/$id", "DELETE") }
+    fun selectSavedProxy(id: String) { request("/me/saved-proxies/$id/select", "POST", JSONObject()) }
     fun loggedIn() = store.accessToken != null
     fun logout() = store.clear()
 }
 
-internal class AppViewModel(private val api: ApiClient) : ViewModel() {
-    var loggedIn by mutableStateOf(api.loggedIn()); private set
+internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
+    var loggedIn by mutableStateOf(apiClient.loggedIn()); private set
+    var updateCheckComplete by mutableStateOf(false); private set
+    var updateRequired by mutableStateOf(false); private set
+    var updateMessage by mutableStateOf(""); private set
+    var updateUrl by mutableStateOf(""); private set
     var loading by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
+    var supportTelegramUsername by mutableStateOf("eng_Eyad_saleh"); private set
+
+    fun loadSupportSettings() = viewModelScope.launch(Dispatchers.IO) {
+        supportTelegramUsername = runCatching { apiClient.supportTelegramUsername() }.getOrDefault("eng_Eyad_saleh")
+    }
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                val result = runCatching { apiClient.checkForUpdate() }
+                withContext(Dispatchers.Main) {
+                    result.onSuccess { state -> updateRequired = state.required; updateMessage = state.message; updateUrl = state.updateUrl }
+                    updateCheckComplete = true
+                }
+                delay(60_000L)
+            }
+        }
+    }
 
     var products by mutableStateOf<List<Product>>(emptyList()); private set
     var productsLoading by mutableStateOf(false); private set
@@ -285,17 +452,94 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     var topUpError by mutableStateOf<String?>(null); private set
     var topUpCreated by mutableStateOf<TopUpRequest?>(null); private set
     var access by mutableStateOf(FeatureAccess()); private set
+    var accessLoaded by mutableStateOf(false); private set
+    var accessLoading by mutableStateOf(false); private set
+    var accessError by mutableStateOf<String?>(null); private set
+    var walletLoading by mutableStateOf(false); private set
+    var walletError by mutableStateOf<String?>(null); private set
+    var walletDetailsLoading by mutableStateOf(false); private set
+    var walletDetailsError by mutableStateOf<String?>(null); private set
+    var activatingPlanId by mutableStateOf<String?>(null); private set
+    var activationError by mutableStateOf<String?>(null); private set
+    var wirelessState by mutableStateOf(WirelessDebuggingManager.DebuggingState.NOT_PAIRED); private set
+    var notifications by mutableStateOf<List<AppNotification>>(emptyList()); private set
+    var supportMessages by mutableStateOf<List<AppNotification>>(emptyList()); private set
+    var unreadSupportMessageCount by mutableStateOf(0); private set
+    var supportMessagesLoading by mutableStateOf(false); private set
+    var supportMessagesError by mutableStateOf<String?>(null); private set
+    var supportMessagesHasMore by mutableStateOf(false); private set
+    private val pendingNotificationReads = mutableSetOf<String>()
+    fun loadNotifications() = viewModelScope.launch(Dispatchers.IO) { runCatching { apiClient.notifications() }.onSuccess { withContext(Dispatchers.Main) { notifications = it } } }
+    fun loadSupportMessages(reset: Boolean = false) {
+        if (supportMessagesLoading || (!reset && !supportMessagesHasMore)) return
+        val offset = if (reset) 0 else supportMessages.size
+        supportMessagesLoading = true
+        supportMessagesError = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { apiClient.supportMessages(offset) }
+            withContext(Dispatchers.Main) {
+                supportMessagesLoading = false
+                result.onSuccess { page ->
+                    supportMessages = if (offset == 0) page.messages else (supportMessages + page.messages).distinctBy { it.id }
+                    unreadSupportMessageCount = page.unreadCount
+                    supportMessagesHasMore = page.hasMore
+                }.onFailure { failure ->
+                    supportMessagesError = failure.message ?: "تعذر تحميل رسائل الدعم."
+                }
+            }
+        }
+    }
+    fun markNotificationRead(id: String) {
+        val known = notifications.firstOrNull { it.id == id } ?: supportMessages.firstOrNull { it.id == id }
+        if (known?.read == true || !pendingNotificationReads.add(id)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { apiClient.markNotificationRead(id) }
+            withContext(Dispatchers.Main) {
+                pendingNotificationReads.remove(id)
+                if (result.isSuccess) {
+                    notifications = notifications.map { if (it.id == id) it.copy(read = true) else it }
+                    supportMessages = supportMessages.map { if (it.id == id) it.copy(read = true) else it }
+                    if (known?.type == "admin_broadcast") {
+                        unreadSupportMessageCount = (unreadSupportMessageCount - 1).coerceAtLeast(0)
+                    }
+                } else if (known?.type == "admin_broadcast") {
+                    supportMessagesError = result.exceptionOrNull()?.message ?: "تعذر حفظ حالة قراءة الرسالة."
+                }
+            }
+        }
+    }
+
+    private var profileLoaded = false
+    private var subscriptionsLoaded = false
+    private var plansLoaded = false
+    private var walletLoaded = false
+    private var walletDetailsLoaded = false
+    private var lastAccountRefreshAt = 0L
+
+    fun updateWirelessState(state: WirelessDebuggingManager.DebuggingState) {
+        wirelessState = state
+    }
+    fun refreshAccountIfStale(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastAccountRefreshAt < ACCOUNT_REFRESH_INTERVAL_MS) return
+        lastAccountRefreshAt = now
+        loadPlansAndWallet(force = true)
+        loadSubscriptions(force = true)
+        loadNotifications()
+        loadSupportMessages(reset = true)
+        if (profile != null) loadProfile(force = true)
+        if (walletDetailsLoaded) loadWalletDetails(force = true)
+    }
 
     fun login(email: String, password: String) {
         loading = true
         error = null
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                api.login(email, password)
+                apiClient.login(email, password)
                 withContext(Dispatchers.Main) {
                     loggedIn = true
                     loading = false
-                    loadMarket()
                 }
             } catch (failure: Exception) {
                 withContext(Dispatchers.Main) {
@@ -306,12 +550,30 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         }
     }
 
+    fun forgotPassword(email: String) {
+        loading = true; error = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try { apiClient.forgotPassword(email); withContext(Dispatchers.Main) { error = "إذا كان البريد مسجلًا، سيصلك رابط آمن لإعادة تعيين كلمة المرور." } }
+            catch (failure: Exception) { withContext(Dispatchers.Main) { error = failure.message ?: "تعذر إرسال رابط الاستعادة." } }
+            finally { withContext(Dispatchers.Main) { loading = false } }
+        }
+    }
+
+    fun deviceResetPassword(email: String, newPassword: String) {
+        loading = true; error = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try { apiClient.deviceResetPassword(email, newPassword); withContext(Dispatchers.Main) { error = "تم تغيير كلمة المرور بنجاح. استخدم كلمة المرور الجديدة لتسجيل الدخول." } }
+            catch (_: Exception) { withContext(Dispatchers.Main) { error = "تعذر إكمال الاستعادة. تحقق من البيانات وحاول مجددًا." } }
+            finally { withContext(Dispatchers.Main) { loading = false } }
+        }
+    }
+
     fun register(email: String, password: String, name: String, done: () -> Unit) {
         loading = true
         error = null
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                api.register(email, password, name)
+                apiClient.register(email, password, name)
                 withContext(Dispatchers.Main) {
                     loading = false
                     error = "تم إنشاء الحساب. سجّل الدخول للمتابعة."
@@ -326,39 +588,34 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         }
     }
 
-    fun loadMarket() = viewModelScope.launch {
-        loadMarketplaceProviders()
-        loadRemoteProxies()
-    }
-
     fun loadMarketplaceProviders() = viewModelScope.launch {
         if (marketplaceProvidersLoading || marketplaceProviders.isNotEmpty()) return@launch
         marketplaceProvidersLoading = true; marketplaceProvidersError = null
-        try { marketplaceProviders = withContext(Dispatchers.IO) { api.marketplaceProviders() } }
+        try { marketplaceProviders = withContext(Dispatchers.IO) { apiClient.marketplaceProviders() } }
         catch (failure: Exception) { marketplaceProvidersError = failure.message ?: "تعذر تحميل مزودي السوق." }
         finally { marketplaceProvidersLoading = false }
     }
 
     fun chooseMarketplaceProvider(provider: String) { selectedMarketplaceProvider = provider; purchaseOptions = null; purchaseError = null }
-    // Proxy-Cheap locations are plan specific: reload the catalog for the exact plan the user picked
-    // so the country/region/city/ISP choices always belong to the plan that is priced and ordered.
+    // Proxy-Cheap locations are plan-specific. Reload the catalog for the exact
+    // plan selected by the user instead of keeping the default plan's locations.
     fun loadPurchaseOptionsFor(provider: String, serviceId: String = "", planId: String = "") = viewModelScope.launch {
         purchaseLoading = true; purchaseError = null; purchaseQuote = null; purchaseOptions = null
-        try { purchaseOptions = withContext(Dispatchers.IO) { api.proxyPurchaseOptions(provider, serviceId, planId) } }
+        try { purchaseOptions = withContext(Dispatchers.IO) { apiClient.proxyPurchaseOptions(provider, serviceId, planId) } }
         catch (failure: Exception) { purchaseError = failure.message ?: "تعذر تحميل خيارات الشراء." }
         finally { purchaseLoading = false }
     }
 
     fun loadProxyQuote(options: ProxyPurchaseOptions, plan: ProxyPurchasePlan, location: ProxyPurchaseLocation) = viewModelScope.launch {
         purchaseQuote = null
-        try { purchaseQuote = withContext(Dispatchers.IO) { api.proxyQuote(options, plan, location) } }
+        try { purchaseQuote = withContext(Dispatchers.IO) { apiClient.proxyQuote(options, plan, location) } }
         catch (failure: Exception) { purchaseError = failure.message ?: "تعذر حساب السعر." }
     }
 
     fun loadPurchaseOptions() = viewModelScope.launch {
         if (purchaseOptions != null || purchaseLoading) return@launch
         purchaseLoading = true; purchaseError = null
-        try { purchaseOptions = withContext(Dispatchers.IO) { api.proxyPurchaseOptions(selectedMarketplaceProvider) } }
+        try { purchaseOptions = withContext(Dispatchers.IO) { apiClient.proxyPurchaseOptions(selectedMarketplaceProvider) } }
         catch (failure: Exception) { purchaseError = failure.message ?: "تعذر تحميل خيارات الشراء." }
         finally { purchaseLoading = false }
     }
@@ -366,7 +623,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun loadRemoteProxies() = viewModelScope.launch {
         if (remoteProxiesLoading) return@launch
         remoteProxiesLoading = true; remoteProxiesError = null
-        try { remoteProxies = withContext(Dispatchers.IO) { api.proxies() } }
+        try { remoteProxies = withContext(Dispatchers.IO) { apiClient.proxies() } }
         catch (failure: Exception) { remoteProxiesError = failure.message ?: "تعذر تحميل بروكسياتك." }
         finally { remoteProxiesLoading = false }
     }
@@ -376,7 +633,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         productsLoading = true
         productsError = null
         try {
-            products = withContext(Dispatchers.IO) { api.products() }
+            products = withContext(Dispatchers.IO) { apiClient.products() }
         } catch (failure: Exception) {
             productsError = when {
                 failure.message.orEmpty().contains("Could not load products", ignoreCase = true) ->
@@ -393,7 +650,7 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun confirmProxyPurchase(options: ProxyPurchaseOptions, plan: ProxyPurchasePlan, location: ProxyPurchaseLocation, username: String, password: String, onSuccess: (PurchasedProxy) -> Unit) = viewModelScope.launch {
         purchaseLoading = true; purchaseError = null
         try {
-            val result = withContext(Dispatchers.IO) { api.purchaseProxy(options, plan, location.id, username, password) }
+            val result = withContext(Dispatchers.IO) { apiClient.purchaseProxy(options, plan, location, username, password) }
             purchasedProxy = result; purchaseOptions = null; onSuccess(result)
         } catch (failure: Exception) { purchaseError = failure.message ?: "تعذر إتمام شراء البروكسي." }
         finally { purchaseLoading = false }
@@ -402,12 +659,13 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun clearPurchaseError() { purchaseError = null }
     fun closePurchase() { purchaseOptions = null; purchaseError = null; purchaseQuote = null; purchasedProxy = null }
 
-    fun loadProfile() = viewModelScope.launch {
-        if (profileLoading) return@launch
+    fun loadProfile(force: Boolean = false) = viewModelScope.launch {
+        if (profileLoading || (profileLoaded && !force)) return@launch
         profileLoading = true
         profileError = null
         try {
-            profile = withContext(Dispatchers.IO) { api.profile() }
+            profile = withContext(Dispatchers.IO) { apiClient.profile() }
+            profileLoaded = true
         } catch (failure: Exception) {
             profileError = failure.message ?: "تعذر تحميل بيانات الحساب. أعد المحاولة."
         } finally {
@@ -415,12 +673,13 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         }
     }
 
-    fun loadSubscriptions() = viewModelScope.launch {
-        if (subscriptionsLoading) return@launch
+    fun loadSubscriptions(force: Boolean = false) = viewModelScope.launch {
+        if (subscriptionsLoading || (subscriptionsLoaded && !force)) return@launch
         subscriptionsLoading = true
         subscriptionsError = null
         try {
-            subscriptions = withContext(Dispatchers.IO) { api.subscriptions() }
+            subscriptions = withContext(Dispatchers.IO) { apiClient.subscriptions() }
+            subscriptionsLoaded = true
         } catch (failure: Exception) {
             subscriptionsError = failure.message ?: "تعذر تحميل الاشتراكات. أعد المحاولة."
         } finally {
@@ -428,26 +687,103 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         }
     }
 
-    fun loadPlansAndWallet() = viewModelScope.launch {
-        plansLoading = true; plansError = null
+    fun loadPlansAndWallet(force: Boolean = false) = viewModelScope.launch {
+        if (!force && plansLoaded && walletLoaded && accessLoaded) return@launch
+        val shouldLoadPlans = !plansLoaded || force
+        val shouldLoadWallet = !walletLoaded || force
+        val shouldLoadAccess = !accessLoaded || force
+        plansLoading = shouldLoadPlans
+        walletLoading = shouldLoadWallet
+        accessLoading = shouldLoadAccess
+        if (shouldLoadPlans) plansError = null
+        if (shouldLoadWallet) walletError = null
+        if (shouldLoadAccess) accessError = null
+        supervisorScope {
+            if (shouldLoadPlans) launch(Dispatchers.IO) {
+                val result = runCatching { apiClient.plans() }
+                withContext(Dispatchers.Main) {
+                    result.onSuccess { plans = it; plansLoaded = true }
+                        .onFailure { plansError = it.message ?: "تعذر تحميل الخطط." }
+                    plansLoading = false
+                }
+            }
+            if (shouldLoadWallet) launch(Dispatchers.IO) {
+                val result = runCatching { apiClient.wallet() }
+                withContext(Dispatchers.Main) {
+                    result.onSuccess { wallet = it; walletLoaded = true }
+                        .onFailure { walletError = it.message ?: "تعذر تحميل الرصيد." }
+                    walletLoading = false
+                }
+            }
+            if (shouldLoadAccess) launch(Dispatchers.IO) {
+                val result = runCatching { apiClient.featureAccess() }
+                withContext(Dispatchers.Main) {
+                    result.onSuccess { access = it; accessLoaded = true }
+                        .onFailure { accessError = it.message ?: "تعذر التحقق من صلاحيات الحساب." }
+                    accessLoading = false
+                }
+            }
+        }
+    }
+
+    fun refreshAccess() = viewModelScope.launch(Dispatchers.IO) {
+        withContext(Dispatchers.Main) { accessLoading = true; accessError = null }
         try {
-            val result = withContext(Dispatchers.IO) { listOf(api.plans(), api.wallet(), api.walletTransactions(), api.topUpMethods(), api.topUpRequests()) }
-            @Suppress("UNCHECKED_CAST")
-            plans = result[0] as List<Plan>; wallet = result[1] as Wallet; walletTransactions = result[2] as List<WalletTransaction>; topUpMethods = result[3] as List<TopUpMethod>; topUpRequests = result[4] as List<TopUpRequest>
-            access = withContext(Dispatchers.IO) { api.featureAccess() }
-        } catch (failure: Exception) { plansError = failure.message ?: "تعذر تحميل الخطط والمحفظة." } finally { plansLoading = false }
+            val result = apiClient.featureAccess()
+            withContext(Dispatchers.Main) { access = result; accessLoaded = true }
+        } catch (failure: Exception) {
+            withContext(Dispatchers.Main) { accessError = failure.message ?: "تعذر التحقق من صلاحيات الحساب." }
+        } finally {
+            withContext(Dispatchers.Main) { accessLoading = false }
+        }
+    }
+
+    fun loadWalletDetails(force: Boolean = false) = viewModelScope.launch {
+        if (walletDetailsLoading || (walletDetailsLoaded && !force)) return@launch
+        walletDetailsLoading = true
+        walletDetailsError = null
+        try {
+            val (transactionsResult, methodsResult, requestsResult) = withContext(Dispatchers.IO) {
+                supervisorScope {
+                    val transactionsCall = async { runCatching { apiClient.walletTransactions() } }
+                    val methodsCall = async { runCatching { apiClient.topUpMethods() } }
+                    val requestsCall = async { runCatching { apiClient.topUpRequests() } }
+                    Triple(transactionsCall.await(), methodsCall.await(), requestsCall.await())
+                }
+            }
+            transactionsResult.onSuccess { walletTransactions = it }
+            methodsResult.onSuccess { topUpMethods = it }
+            requestsResult.onSuccess { topUpRequests = it }
+            walletDetailsLoaded = transactionsResult.isSuccess && methodsResult.isSuccess && requestsResult.isSuccess
+            walletDetailsError = listOfNotNull(
+                transactionsResult.exceptionOrNull()?.message,
+                methodsResult.exceptionOrNull()?.message,
+                requestsResult.exceptionOrNull()?.message,
+            ).firstOrNull()
+        } finally {
+            walletDetailsLoading = false
+        }
     }
 
     fun createTopUp(method: TopUpMethod, amount: Double) = viewModelScope.launch {
         topUpLoading = true; topUpError = null
-        try { topUpCreated = withContext(Dispatchers.IO) { api.createTopUp(method.code, amount) }; topUpRequests = withContext(Dispatchers.IO) { api.topUpRequests() } }
+        try {
+            topUpCreated = withContext(Dispatchers.IO) { apiClient.createTopUp(method.code, amount) }
+            loadWalletDetails(force = true)
+        }
         catch (failure: Exception) { topUpError = failure.message ?: "تعذر إنشاء طلب الشحن." }
         finally { topUpLoading = false }
     }
 
     fun verifyTopUp(request: TopUpRequest, reference: String, done: () -> Unit) = viewModelScope.launch {
         topUpLoading = true; topUpError = null
-        try { withContext(Dispatchers.IO) { api.verifyTopUp(request.id, reference) }; topUpCreated = null; topUpRequests = withContext(Dispatchers.IO) { api.topUpRequests() }; done() }
+        try {
+            withContext(Dispatchers.IO) { apiClient.verifyTopUp(request.id, reference) }
+            topUpCreated = null
+            loadWalletDetails(force = true)
+            loadPlansAndWallet(force = true)
+            done()
+        }
         catch (failure: Exception) { topUpError = failure.message ?: "تعذر إرسال عملية التحقق." }
         finally { topUpLoading = false }
     }
@@ -455,12 +791,29 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
     fun clearTopUp() { topUpCreated = null; topUpError = null }
 
     fun activatePlan(plan: Plan) = viewModelScope.launch {
-        try { withContext(Dispatchers.IO) { api.activatePlan(plan.id) }; loadPlansAndWallet(); loadSubscriptions() }
-        catch (failure: Exception) { plansError = failure.message ?: "تعذر تفعيل الخطة. تحقق من رصيد المحفظة." }
+        if (activatingPlanId != null) return@launch
+        activatingPlanId = plan.id
+        activationError = null
+        try {
+            withContext(Dispatchers.IO) { apiClient.activatePlan(plan.id) }
+            access = access.copy(
+                advanced = access.advanced || "advanced" in plan.features,
+                sim = access.sim || "sim" in plan.features,
+                vpn = access.vpn || "vpn" in plan.features,
+                mockLocation = access.mockLocation || "mock_location" in plan.features,
+            )
+            accessLoaded = true
+            loadPlansAndWallet(force = true)
+            loadSubscriptions(force = true)
+        } catch (failure: Exception) {
+            activationError = failure.message ?: "تعذر تفعيل الخطة. تحقق من رصيد المحفظة."
+        } finally {
+            activatingPlanId = null
+        }
     }
 
     fun logout() {
-        api.logout()
+        apiClient.logout()
         loggedIn = false
         products = emptyList()
         productsError = null
@@ -470,10 +823,29 @@ internal class AppViewModel(private val api: ApiClient) : ViewModel() {
         subscriptions = emptyList()
         subscriptionsError = null
         plans = emptyList(); wallet = null; walletTransactions = emptyList(); topUpMethods = emptyList(); topUpRequests = emptyList(); topUpCreated = null; access = FeatureAccess(); plansError = null; topUpError = null
+        profileLoaded = false
+        subscriptionsLoaded = false
+        plansLoaded = false
+        walletLoaded = false
+        walletDetailsLoaded = false
+        lastAccountRefreshAt = 0L
+        accessLoaded = false
+        accessLoading = false
+        accessError = null
+        walletLoading = false
+        walletError = null
+        walletDetailsLoading = false
+        walletDetailsError = null
+        activationError = null
+        activatingPlanId = null
         error = null
     }
 
     fun clearError() { error = null }
+
+    private companion object {
+        const val ACCOUNT_REFRESH_INTERVAL_MS = 5 * 60 * 1000L
+    }
 }
 
 private class AppViewModelFactory(private val api: ApiClient) : androidx.lifecycle.ViewModelProvider.Factory { override fun <T : ViewModel> create(modelClass: Class<T>): T = AppViewModel(api) as T }
@@ -492,22 +864,63 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun ProxyPlatformApp(vm: AppViewModel) { CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { if (vm.loggedIn) MainShell(vm) else AuthScreen(vm) } } }
+@Composable private fun ProxyPlatformApp(vm: AppViewModel) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            when {
+                !vm.updateCheckComplete -> UpdateCheckingScreen()
+                vm.updateRequired -> AppUpdateRequiredScreen(vm.updateMessage, vm.updateUrl)
+                vm.loggedIn -> MainShell(vm)
+                else -> AuthScreen(vm)
+            }
+        }
+    }
+}
+
+@Composable private fun UpdateCheckingScreen() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            CircularProgressIndicator(color = KunPalette.Primary)
+            Text("جارٍ التحقق من إصدار التطبيق…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable private fun AppUpdateRequiredScreen(message: String, updateUrl: String) {
+    val context = LocalContext.current
+    val fallbackUrl = "https://kuncloak.work.gd:10059/"
+    Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("يتطلب التطبيق تحديثًا", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = KunPalette.Primary)
+        Text(message.ifBlank { "يتوفر إصدار جديد من التطبيق. حدّث التطبيق للمتابعة." }, modifier = Modifier.padding(top = 14.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl.ifBlank { fallbackUrl }))) }, modifier = Modifier.fillMaxWidth().padding(top = 28.dp), shape = RoundedCornerShape(15.dp)) { Text("تحديث التطبيق", fontWeight = FontWeight.Bold) }
+    }
+}
 // ─────────────────────────────────────────────────────────────────────────────
-// Proxy Screen — local proxy + embedded Wireless ADB flow
+// Proxy Screen — VPN and advanced local-proxy modes
 // ─────────────────────────────────────────────────────────────────────────────
 
-@Composable internal fun ProxyScreen(padding: PaddingValues) {
+@Composable internal fun ProxyScreen(
+    padding: PaddingValues,
+    wirelessReady: Boolean,
+    vpnAllowed: Boolean,
+    advancedAllowed: Boolean,
+    onGoToAdb: () -> Unit,
+    api: ApiClient,
+) {
     val context = LocalContext.current
     val locationController = remember { ProxyLocationController(context) }
     DisposableEffect(Unit) { onDispose { locationController.close() } }
 
     // "vpn" = recommended one-tap mode (single system dialog, no Shizuku).
     // "advanced" = original local-proxy mode for users who want no VPN icon.
-    var mode by remember {
+    var mode by remember(vpnAllowed, advancedAllowed) {
         mutableStateOf(
-            if (ProxyLocalService.isRunning(context) || AdvancedSystemProxy.hasPendingRestore(context))
-                "advanced" else "vpn"
+            when {
+                (ProxyLocalService.isRunning(context) || AdvancedSystemProxy.hasPendingRestore(context)) && advancedAllowed -> "advanced"
+                vpnAllowed -> "vpn"
+                advancedAllowed -> "advanced"
+                else -> "vpn"
+            }
         )
     }
 
@@ -517,6 +930,14 @@ class MainActivity : ComponentActivity() {
     var auth by remember { mutableStateOf(false) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var featureTab by remember { mutableStateOf("connection") }
+    var rootAvailable by remember { mutableStateOf(false) }
+    var blockWebRtcEnabled by remember {
+        mutableStateOf(
+            context.getSharedPreferences("advanced_connection_options", Context.MODE_PRIVATE)
+                .getBoolean("block_webrtc", false)
+        )
+    }
     val profileStore = remember(context) { ProxyProfileStore(context.applicationContext) }
     var savedProxies by remember { mutableStateOf(emptyList<SavedProxy>()) }
     var selectedSavedProxyId by remember { mutableStateOf<String?>(null) }
@@ -542,24 +963,8 @@ class MainActivity : ComponentActivity() {
             if (mockLocation) "اضغط التحقق لاختيار التطبيق قبل الاتصال." else "غير مفعّل"
         )
     }
-    var resumeStartAfterCoarsePermission by remember { mutableStateOf(false) }
-    var matchProxyTimezone by remember {
-        mutableStateOf(
-            context.getSharedPreferences("advanced_proxy_timezone_options", Context.MODE_PRIVATE)
-                .getBoolean("enabled", false)
-        )
-    }
-    var matchProxyLanguage by remember {
-        mutableStateOf(
-            context.getSharedPreferences("advanced_proxy_language_options", Context.MODE_PRIVATE)
-                .getBoolean("enabled", false)
-        )
-    }
-    var wirelessState by remember {
-        mutableStateOf(WirelessDebuggingManager.DebuggingState.NOT_PAIRED)
-    }
-    var showPairingNotificationOnGrant by remember { mutableStateOf(false) }
-
+    var featureLoading by remember { mutableStateOf(false) }
+    var featureStatus by remember { mutableStateOf<String?>(null) }
     fun hasNotificationPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
         return ContextCompat.checkSelfPermission(
@@ -569,18 +974,8 @@ class MainActivity : ComponentActivity() {
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (showPairingNotificationOnGrant && granted) {
-            if (!NotificationManagerCompat.from(context).areNotificationsEnabled() ||
-                !WirelessDebuggingManager.showPairingNotification(context)
-            ) {
-                error = "الإشعارات متوقفة لهذا التطبيق؛ أدخل رمز الاقتران يدويًا من التطبيق."
-            }
-        } else if (showPairingNotificationOnGrant) {
-            error = "لم يُمنح إذن الإشعارات؛ أدخل رمز الاقتران يدويًا من التطبيق."
-        }
-        showPairingNotificationOnGrant = false
-    }
+    ) { }
+
 
     val coarseLocationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -588,9 +983,7 @@ class MainActivity : ComponentActivity() {
         if (granted) {
             mockLocationStatus = "تم منح إذن الموقع التقريبي اللازم لخدمات Google؛ جارٍ استكمال الاتصال…"
             error = null
-            resumeStartAfterCoarsePermission = true
         } else {
-            resumeStartAfterCoarsePermission = false
             mockLocationStatus = "يلزم إذن الموقع التقريبي كي تستقبل خدمات Google إحداثيات الموقع الوهمي."
             error = "لم يُمنح إذن الموقع التقريبي؛ لم يبدأ الاتصال ولم نقرأ موقعك الحقيقي."
         }
@@ -600,29 +993,6 @@ class MainActivity : ComponentActivity() {
     fun ensureNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission()) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
-    fun ensurePairingNotification() {
-        if (hasNotificationPermission()) {
-            if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-                error = "إشعارات التطبيق متوقفة من إعدادات Android؛ استخدم إدخال الرمز اليدوي أو فعّل الإشعارات."
-            } else if (!WirelessDebuggingManager.showPairingNotification(context)) {
-                error = "تعذر عرض إشعار الاقتران؛ استخدم إدخال الرمز اليدوي."
-            }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            showPairingNotificationOnGrant = true
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            error = "تعذر عرض الإشعار؛ استخدم إدخال رمز الاقتران اليدوي."
-        }
-    }
-
-    fun openDeveloperOptions() {
-        runCatching {
-            context.startActivity(WirelessDebuggingManager.getDebuggingSettingsIntent(context))
-        }.onFailure {
-            error = ProxyFailureMessages.settingsPage("خيارات المطوّر")
         }
     }
 
@@ -680,7 +1050,7 @@ class MainActivity : ComponentActivity() {
         username = profile.username
         password = profile.password
         coroutineScope.launch {
-            runCatching { withContext(Dispatchers.IO) { profileStore.select(profile.id) } }
+            runCatching { withContext(Dispatchers.IO) { profileStore.select(profile.id); api.selectSavedProxy(profile.id) } }
                 .onFailure { error = ProxyFailureMessages.savedProxy(it.message, "حفظ اختيار البروكسي") }
         }
     }
@@ -689,7 +1059,7 @@ class MainActivity : ComponentActivity() {
         coroutineScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val saved = profileStore.save(candidate)
+                    val saved = api.saveSavedProxy(profileStore.save(candidate))
                     profileStore.loadAll() to saved
                 }
             }.onSuccess { (profiles, saved) ->
@@ -712,6 +1082,7 @@ class MainActivity : ComponentActivity() {
         coroutineScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
+                    api.deleteSavedProxy(profile.id)
                     profileStore.delete(profile.id)
                     profileStore.loadAll()
                 }
@@ -728,12 +1099,109 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    suspend fun ensureFeatureProxy(): Int {
+        check(selectedSavedProxyId != null && host.isNotBlank()) { "اختر بروكسيًا محفوظًا أولًا." }
+        val parsedPort = port.toIntOrNull()
+        check(parsedPort in 1..65535) { "بيانات البروكسي المختار غير صالحة." }
+        if (ProxyLocalService.isRunning(context) && ProxyLocalService.isListenerReady(context)) return ProxyLocalService.localPort(context)
+        startLocalProxyService(context, protocol, host, port, if (auth) username else "", if (auth) password else "", false, false)
+        repeat(40) {
+            if (ProxyLocalService.isRunning(context) && ProxyLocalService.isListenerReady(context)) return ProxyLocalService.localPort(context)
+            delay(250)
+        }
+        throw IllegalStateException(ProxyLocalService.lastError(context) ?: "تعذر تشغيل خدمة الإعداد المستقل.")
+    }
+
+    fun applyFeatureTimezone() {
+        if (!wirelessReady) { featureStatus = "فعّل اتصال ADB أولًا من تبويب ADB."; return }
+        featureLoading = true; featureStatus = "جارٍ تحديد المنطقة الزمنية عبر البروكسي…"
+        coroutineScope.launch {
+            var temporaryService = false
+            runCatching {
+                val port = withContext(Dispatchers.IO) {
+                    val wasRunning = ProxyLocalService.isRunning(context)
+                    val value = ensureFeatureProxy()
+                    temporaryService = !wasRunning
+                    value
+                }
+                val timezone = withContext(Dispatchers.IO) { locationController.fetchProxyTimezone(port) }
+                withContext(Dispatchers.IO) { AdvancedProxyTimezoneController.apply(context, timezone).getOrThrow() }
+                featureStatus = "تم تطبيق المنطقة الزمنية: ${timezone.id}"
+            }.onFailure { featureStatus = "تعذر تطبيق المنطقة الزمنية: ${it.message ?: "تحقق من ADB والبروكسي."}" }
+                .also { if (temporaryService && !running) ProxyLocalService.stop(context) }
+            featureLoading = false
+        }
+    }
+
+    fun restoreFeatureTimezone() {
+        if (!wirelessReady) { featureStatus = "فعّل اتصال ADB أولًا من تبويب ADB."; return }
+        featureLoading = true
+        coroutineScope.launch(Dispatchers.IO) {
+            val result = AdvancedProxyTimezoneController.restore(context)
+            withContext(Dispatchers.Main) {
+                featureLoading = false
+                featureStatus = result.fold({ "تمت استعادة المنطقة الزمنية الأصلية." }, { "تعذرت الاستعادة: ${it.message}" })
+            }
+        }
+    }
+
+    fun startIndependentLocation() {
+        if (!wirelessReady) { featureStatus = "فعّل اتصال ADB أولًا من تبويب ADB."; return }
+        if (locationMode == "manual" && (latitude.toDoubleOrNull() == null || longitude.toDoubleOrNull() == null)) { featureStatus = "أدخل خط العرض وخط الطول بشكل صحيح."; return }
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            featureStatus = "يلزم إذن الموقع التقريبي لتشغيل الموقع الوهمي."
+            coarseLocationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+            return
+        }
+        featureLoading = true; featureStatus = "جارٍ تشغيل الموقع الوهمي…"
+        coroutineScope.launch {
+            runCatching {
+                locationController.checkMockLocationAccess().getOrThrow()
+                val localPort = withContext(Dispatchers.IO) { ensureFeatureProxy() }
+                val result = kotlinx.coroutines.suspendCancellableCoroutine<Result<Pair<Double, Double>>> { continuation ->
+                    val callback: (Result<Pair<Double, Double>>) -> Unit = { if (continuation.isActive) continuation.resume(it) {} }
+                    if (locationMode == "auto") locationController.startAutoThroughLocalProxy(localPort, callback)
+                    else locationController.startManual(latitude.toDouble(), longitude.toDouble(), callback)
+                }
+                result.getOrThrow()
+                mockLocationAuthorized = true
+                featureStatus = "الموقع الوهمي يعمل كخدمة مستقلة عن تشغيل البروكسي."
+            }.onFailure { featureStatus = "تعذر تشغيل الموقع الوهمي: ${it.message ?: "تحقق من الصلاحيات."}" }
+            featureLoading = false
+        }
+    }
+
+    fun stopIndependentLocation() {
+        locationController.stop()
+        if (!running && ProxyLocalService.isRunning(context)) ProxyLocalService.stop(context)
+        mockLocationAuthorized = false
+        featureStatus = "تم إيقاف الموقع الوهمي."
+    }
+
+    LaunchedEffect(mode, featureTab) {
+        if (mode == "advanced" && featureTab == "connection") {
+            rootAvailable = withContext(Dispatchers.IO) { RootWebRtcController.hasRoot() }
+            if (!rootAvailable && blockWebRtcEnabled) {
+                blockWebRtcEnabled = false
+                context.getSharedPreferences("advanced_connection_options", Context.MODE_PRIVATE)
+                    .edit().putBoolean("block_webrtc", false).apply()
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
+        if (!ProxyLocalService.isRunning(context) && RootWebRtcController.hasPendingRestore(context)) {
+            val firewallRestore = withContext(Dispatchers.IO) { RootWebRtcController.restore(context) }
+            if (firewallRestore.isFailure) {
+                error = "تعذرت استعادة قواعد حجب WebRTC السابقة: ${firewallRestore.exceptionOrNull()?.message}"
+            }
+        }
         if (!ProxyVpnService.isRunning(context) && !ProxyLocalService.isRunning(context)) {
             ProxyLocationController.recoverStaleFusedMockMode(context)
         }
-        runCatching { withContext(Dispatchers.IO) { profileStore.loadAll() } }
+        runCatching { withContext(Dispatchers.IO) { api.savedProxies().ifEmpty { profileStore.loadAll() } } }
             .onSuccess { profiles ->
+                profiles.forEach { profile -> runCatching { profileStore.save(profile) } }
                 savedProxies = profiles
                 val selectedProfile = profiles.firstOrNull { it.selected } ?: profiles.firstOrNull()
                 if (selectedProfile != null) {
@@ -779,20 +1247,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    LaunchedEffect(mode) {
-        if (mode == "advanced") {
-            while (true) {
-                val newWirelessState = withContext(Dispatchers.IO) {
-                    WirelessDebuggingManager.checkState(context)
-                }
-                if (newWirelessState != wirelessState) {
-                    AdvancedOperationLog.info(context, "حالة Wireless ADB: ${newWirelessState.name}.")
-                    wirelessState = newWirelessState
-                }
-                delay(1_000)
-            }
-        }
-    }
+
 
     fun startLocation() {
         if (!mockLocation) {
@@ -837,20 +1292,20 @@ class MainActivity : ComponentActivity() {
         }.onFailure { onStatus(Result.failure(it)) }
     }
 
-    // ── Advanced mode: local proxy + embedded Wireless ADB ─────────────
-    fun launchAdvancedTunnel() {
+    // ── Advanced mode: local system proxy (shared ADB configured separately) ─
+    fun launchAdvancedTunnel(allowUdp: Boolean, blockWebRtc: Boolean) {
         error = null
         starting = true
         running = false
         AdvancedOperationLog.info(context, "========== بدء تشغيل البروكسي المتقدم ==========")
         AdvancedOperationLog.info(
             context,
-            "الخيارات: protocol=${protocol.uppercase()}, port=${port.toIntOrNull() ?: "invalid"}, authentication=$auth؛ بيانات الاعتماد لا تُسجّل."
+            "الخيارات: protocol=${protocol.uppercase()}, port=${port.toIntOrNull() ?: "invalid"}, authentication=$auth, blockWebRtc=$blockWebRtc؛ بيانات الاعتماد لا تُسجّل."
         )
         ProxyLocalService.clearLastError(context)
         runCatching {
             AdvancedOperationLog.info(context, "إرسال طلب تشغيل خدمة البروكسي المحلي إلى Android.")
-            startLocalProxyService(context, protocol, host, port, username, password)
+            startLocalProxyService(context, protocol, host, port, username, password, false, allowUdp)
         }.onFailure {
             AdvancedOperationLog.exception(context, "تعذر إرسال طلب تشغيل خدمة البروكسي", it)
             starting = false
@@ -881,33 +1336,19 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     val expectedProxy = "127.0.0.1:${ProxyLocalService.localPort(context)}"
-                    val proxyTimezone = if (matchProxyTimezone) {
-                        runCatching {
-                            locationController.fetchProxyTimezone(ProxyLocalService.localPort(context))
-                        }.getOrElse {
-                            AdvancedOperationLog.exception(context, "فشل اكتشاف المنطقة الزمنية عبر مخرج sing-box المحلي", it)
-                            return@withContext Result.failure(it)
-                        }
-                    } else {
-                        null
-                    }
-                    val proxyLanguage = if (matchProxyLanguage) {
-                        runCatching {
-                            locationController.fetchProxyLanguage(ProxyLocalService.localPort(context))
-                        }.getOrElse {
-                            AdvancedOperationLog.exception(context, "فشل اكتشاف لغة الهاتف عبر مخرج sing-box المحلي", it)
-                            return@withContext Result.failure(it)
-                        }
-                    } else {
-                        null
-                    }
                     AdvancedOperationLog.info(context, "أصبح المنفذ المحلي جاهزًا؛ بدء ضبط بروكسي نظام Android.")
                     val proxyResult = AdvancedSystemProxy.apply(context, expectedProxy)
+                    val webRtcResult = if (proxyResult.isSuccess && blockWebRtc) {
+                        RootWebRtcController.apply(context)
+                    } else {
+                        Result.success(Unit)
+                    }
                     val result = if (proxyResult.isFailure) {
                         proxyResult
+                    } else if (webRtcResult.isFailure) {
+                        webRtcResult
                     } else {
-                        val timezoneResult = if (proxyTimezone != null) AdvancedProxyTimezoneController.apply(context, proxyTimezone) else Result.success(Unit)
-                        if (timezoneResult.isFailure) timezoneResult else if (proxyLanguage != null) AdvancedProxyLanguageController.apply(context, proxyLanguage) else Result.success(Unit)
+                        Result.success(Unit)
                     }
                     if (result.isSuccess &&
                         (!ProxyLocalService.isRunning(context) || !ProxyLocalService.isListenerReady(context))
@@ -932,7 +1373,6 @@ class MainActivity : ComponentActivity() {
                 AdvancedOperationLog.output(context, "اكتمل تشغيل الوضع المتقدم بنجاح.")
                 running = true
                 starting = false
-                startLocation()
             } else {
                 setupResult.exceptionOrNull()?.let {
                     AdvancedOperationLog.exception(context, "فشل تشغيل الوضع المتقدم", it)
@@ -943,7 +1383,10 @@ class MainActivity : ComponentActivity() {
                     val proxyRestore = if (AdvancedSystemProxy.hasPendingRestore(context)) {
                         AdvancedSystemProxy.restore(context, "127.0.0.1:${ProxyLocalService.localPort(context)}")
                     } else Result.success(Unit)
-                    if (languageRestore.isFailure) languageRestore else if (timezoneRestore.isFailure) timezoneRestore else proxyRestore
+                    val baseRestore = if (languageRestore.isFailure) languageRestore else if (timezoneRestore.isFailure) timezoneRestore else proxyRestore
+                    if (baseRestore.isSuccess && RootWebRtcController.hasPendingRestore(context)) {
+                        RootWebRtcController.restore(context)
+                    } else baseRestore
                 }
                 if (restoreResult.isSuccess) {
                     AdvancedOperationLog.info(context, "اكتملت معالجة الاستعادة؛ إيقاف الخدمة المحلية.")
@@ -965,8 +1408,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun requestStartAdvanced() {
-        if (wirelessState != WirelessDebuggingManager.DebuggingState.READY) {
+    fun requestStartAdvanced(allowUdp: Boolean) {
+        val currentState = WirelessDebuggingManager.checkState(context)
+        if (!wirelessReady || currentState != WirelessDebuggingManager.DebuggingState.READY) {
             AdvancedOperationLog.error(context, "رُفض بدء الوضع المتقدم: اتصال Wireless ADB غير جاهز.")
             error = ProxyFailureMessages.connection(
                 advanced = true,
@@ -974,9 +1418,12 @@ class MainActivity : ComponentActivity() {
             )
             return
         }
-        launchAdvancedTunnel()
+        if (blockWebRtcEnabled && !rootAvailable) {
+            error = "يتطلب حجب WebRTC صلاحية الروت؛ لم يبدأ الاتصال."
+            return
+        }
+        launchAdvancedTunnel(allowUdp, blockWebRtcEnabled)
     }
-
     fun stopAdvanced() {
         if (stopping) return
         stopping = true
@@ -988,24 +1435,25 @@ class MainActivity : ComponentActivity() {
             val restoreResult = if (languageRestore.isSuccess && timezoneRestore.isSuccess) {
                 AdvancedSystemProxy.restore(context, expectedProxy)
             } else if (languageRestore.isFailure) languageRestore else timezoneRestore
+            val completeRestore = if (restoreResult.isSuccess && RootWebRtcController.hasPendingRestore(context)) {
+                RootWebRtcController.restore(context)
+            } else restoreResult
             withContext(Dispatchers.Main) {
                 stopping = false
-                if (restoreResult.isSuccess) {
+                if (completeRestore.isSuccess) {
                     AdvancedOperationLog.output(context, "استُعيدت لغة الهاتف والمنطقة الزمنية والبروكسي؛ جارٍ إيقاف خدمة البروكسي المحلي.")
-                    locationController.stop()
-                    if (mockLocation) mockLocationStatus = "تم إيقاف الموقع الوهمي."
                     ProxyLocalService.stop(context)
                     running = false
                 } else {
                     AdvancedOperationLog.error(context, "تعذر إيقاف آمن: فشلت استعادة إعدادات البروكسي أو المنطقة الزمنية.")
-                    error = ProxyFailureMessages.advancedRestore(restoreResult.exceptionOrNull()?.message)
+                    error = ProxyFailureMessages.advancedRestore(completeRestore.exceptionOrNull()?.message)
                 }
             }
         }
     }
 
     // ── Recommended mode: one-tap VpnService tunnel ─────────────────────────
-    fun launchVpnTunnel() {
+    fun launchVpnTunnel(allowUdp: Boolean) {
         error = null
         starting = true
         ProxyVpnService.clearLastError(context)
@@ -1019,6 +1467,8 @@ class MainActivity : ComponentActivity() {
                 username,
                 password,
                 includeMockLocationInbound = mockLocation && locationMode == "auto",
+                blockWebRtc = false,
+                allowUdp = allowUdp,
             )
         }.onFailure {
             starting = false
@@ -1026,27 +1476,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    var allowUdpForNextStart by remember { mutableStateOf(false) }
+
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) launchVpnTunnel()
+        if (result.resultCode == Activity.RESULT_OK) launchVpnTunnel(allowUdpForNextStart)
         else {
             starting = false
             error = ProxyFailureMessages.connection(false, "VPN permission was denied")
         }
     }
 
-    fun requestStartVpn() {
+    fun requestStartVpn(allowUdp: Boolean) {
+        allowUdpForNextStart = allowUdp
         // Don't flip `starting` yet: VpnService.prepare() may show an async,
         // user-driven system dialog first. `starting` (and its 1.5s polling
         // window below) only starts once launchVpnTunnel() actually runs.
         val consent = VpnService.prepare(context)
-        if (consent != null) vpnPermissionLauncher.launch(consent) else launchVpnTunnel()
+        if (consent != null) vpnPermissionLauncher.launch(consent) else launchVpnTunnel(allowUdp)
     }
 
     fun stopVpn() {
-        locationController.stop()
-        if (mockLocation) mockLocationStatus = "تم إيقاف الموقع الوهمي."
         ProxyVpnService.stop(context)
         running = false
     }
@@ -1065,28 +1516,6 @@ class MainActivity : ComponentActivity() {
             error = "أدخل كلمة مرور البروكسي أو أوقف خيار المصادقة."
             return
         }
-        if (mockLocation && locationMode == "manual") {
-            val parsedLatitude = latitude.toDoubleOrNull()
-            val parsedLongitude = longitude.toDoubleOrNull()
-            if (parsedLatitude == null || !parsedLatitude.isFinite() || parsedLatitude !in -90.0..90.0) {
-                error = "أدخل خط عرض صحيحًا بين -90 و90."
-                return
-            }
-            if (parsedLongitude == null || !parsedLongitude.isFinite() || parsedLongitude !in -180.0..180.0) {
-                error = "أدخل خط طول صحيحًا بين -180 و180."
-                return
-            }
-        }
-        if (mockLocation && ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            mockLocationStatus = "إذن الموقع التقريبي مطلوب فقط لتسليم الإحداثيات الوهمية إلى Google Maps."
-            error = "سيطلب Android إذن الموقع التقريبي؛ التطبيق لا يقرأ موقعك الحقيقي. لن يبدأ الاتصال قبل موافقتك."
-            coarseLocationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-            return
-        }
         error = null
         checkingEndpoint = true
         AdvancedOperationLog.info(
@@ -1094,32 +1523,6 @@ class MainActivity : ComponentActivity() {
             "فحص البروكسي قبل بدء الوضع=${mode.uppercase()}، endpoint=$host:$parsedPort، protocol=${protocol.uppercase()}، auth=$auth، target=1.1.1.1:443، TCP/read timeout=${ProxyEndpointProbe.DEFAULT_TIMEOUT_MS}ms؛ لا تُسجّل كلمات المرور."
         )
         coroutineScope.launch {
-            if (mockLocation) {
-                mockLocationStatus = "جارٍ التحقق من اختيار التطبيق للموقع الوهمي…"
-                val mockAccess = withContext(Dispatchers.IO) {
-                    locationController.checkMockLocationAccess()
-                }
-                mockLocationAuthorized = mockAccess.isSuccess
-                if (mockAccess.isFailure) {
-                    checkingEndpoint = false
-                    val cause = mockAccess.exceptionOrNull()
-                    val permissionDenied = cause is SecurityException
-                    mockLocationStatus = if (permissionDenied) {
-                        "اختر Kun cloak من إعداد اختيار تطبيق الموقع الوهمي."
-                    } else {
-                        "تعذر التحقق من إعداد الموقع الوهمي؛ راجع سبب المشكلة وخطوة الإصلاح أدناه."
-                    }
-                    if (cause != null) {
-                        AdvancedOperationLog.exception(context, "لم يُسمح للتطبيق بإنشاء test location provider", cause)
-                    }
-                    error = ProxyFailureMessages.mockLocation(
-                        if (permissionDenied) "mock location app not selected: ${cause?.message.orEmpty()}"
-                        else cause?.message
-                    )
-                    return@launch
-                }
-                mockLocationStatus = "تم التحقق من صلاحية الموقع الوهمي."
-            }
             val probe = withContext(Dispatchers.IO) {
                 ProxyEndpointProbe.check(
                     host,
@@ -1138,38 +1541,25 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
 
-            if (mode == "vpn" && protocol == "socks5") {
-                AdvancedOperationLog.info(
-                    context,
-                    "فحص UDP relay في SOCKS5 قبل طلب إذن VPN؛ WebRTC يعتمد على مرور UDP، ولن يبدأ النفق إذا لم يمنح الخادم UDP ASSOCIATE."
-                )
+            var allowUdp = false
+            if (protocol == "socks5") {
+                AdvancedOperationLog.info(context, "فحص دعم UDP اختياري؛ فشل الفحص لن يمنع اتصال TCP.")
                 val udpProbe = withContext(Dispatchers.IO) {
                     ProxyEndpointProbe.checkSocks5UdpAssociation(
                         host,
                         parsedPort!!,
                         if (auth) username else "",
                         if (auth) password else "",
+                        timeoutMs = 2500,
                         trace = { stage -> AdvancedOperationLog.info(context, "فحص SOCKS5 UDP: $stage") },
                     )
                 }
-                if (udpProbe.isFailure) {
-                    checkingEndpoint = false
-                    val failure = udpProbe.exceptionOrNull()
-                    if (failure != null) AdvancedOperationLog.exception(context, "فشل اختبار SOCKS5 UDP relay", failure)
-                    error = ProxyFailureMessages.connection(false, failure?.message ?: "SOCKS5 UDP ASSOCIATE was rejected")
-                    return@launch
-                }
+                allowUdp = udpProbe.isSuccess
+                if (allowUdp) AdvancedOperationLog.info(context, "يدعم البروكسي UDP؛ سيتم تمرير WebRTC عبره.")
+                else AdvancedOperationLog.info(context, "لا يدعم البروكسي UDP أو لم يرد؛ سيتم تشغيل TCP فقط بدون رفض الاتصال.")
             }
-
             checkingEndpoint = false
-            if (mode == "vpn") requestStartVpn() else requestStartAdvanced()
-        }
-    }
-
-    LaunchedEffect(resumeStartAfterCoarsePermission) {
-        if (resumeStartAfterCoarsePermission) {
-            resumeStartAfterCoarsePermission = false
-            requestStart()
+            if (mode == "vpn") requestStartVpn(allowUdp) else requestStartAdvanced(allowUdp)
         }
     }
 
@@ -1186,11 +1576,32 @@ class MainActivity : ComponentActivity() {
                     advanced = false,
                     details = ProxyVpnService.lastError(context) ?: "VPN service failed to start",
                 )
-            } else {
-                startLocation()
             }
             starting = false
         }
+    }
+
+    if (featureTab == "connection" && mode == "advanced" && !wirelessReady) {
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            AdbRequiredPanel(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                title = "البروكسي المتقدم",
+                description = "اتصل عبر صفحة ADB للمتابعة.",
+                onGoToAdb = onGoToAdb,
+            )
+            AdvancedWebRtcToggle(
+                rootAvailable = rootAvailable,
+                checked = blockWebRtcEnabled,
+                enabled = !starting && !checkingEndpoint && !stopping,
+                onCheckedChange = { enabled ->
+                    blockWebRtcEnabled = enabled
+                    context.getSharedPreferences("advanced_connection_options", Context.MODE_PRIVATE)
+                        .edit().putBoolean("block_webrtc", enabled).apply()
+                },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        return
     }
 
     Box(Modifier.fillMaxSize().padding(padding)) {
@@ -1199,51 +1610,60 @@ class MainActivity : ComponentActivity() {
         contentPadding = PaddingValues(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 142.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // ── Connection mode ────────────────────────────────────────────────────
         item {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(KunPalette.SurfaceSoft).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilterChip(selected = featureTab == "connection", onClick = { featureTab = "connection" }, label = { Text("الاتصال") }, modifier = Modifier.weight(1f))
+                FilterChip(selected = featureTab == "advanced", onClick = { featureTab = "advanced" }, label = { Text("خيارات متقدمة") }, modifier = Modifier.weight(1f))
+            }
+        }
+        if (featureTab == "connection") item {
+            // ── Connection mode ────────────────────────────────────────────────────
+
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Text("طريقة الاتصال", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    ModeOptionCard(
-                        title = "VPN",
-                        subtitle = "إعداد سريع ومُوصى به",
-                        selected = mode == "vpn",
-                        enabled = !running && !starting && !checkingEndpoint,
-                        modifier = Modifier.weight(1f),
-                        onClick = { mode = "vpn"; error = null },
-                    )
-                    ModeOptionCard(
-                        title = "متقدم",
-                        subtitle = "بروكسي النظام عبر ADB",
-                        selected = mode == "advanced",
-                        enabled = !running && !starting && !checkingEndpoint,
-                        modifier = Modifier.weight(1f),
-                        onClick = { mode = "advanced"; error = null },
+                if (vpnAllowed && advancedAllowed) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        ModeOptionCard("VPN", "اتصال آمن", mode == "vpn", !running && !starting && !checkingEndpoint, Modifier.weight(1f)) { mode = "vpn"; error = null }
+                        ModeOptionCard("متقدم", "بروكسي النظام عبر ADB", mode == "advanced", !running && !starting && !checkingEndpoint, Modifier.weight(1f)) { mode = "advanced"; error = null }
+                    }
+                } else if (vpnAllowed) {
+                    ModeOptionCard("VPN", "اتصال آمن", true, !running && !starting && !checkingEndpoint, Modifier.fillMaxWidth()) { mode = "vpn"; error = null }
+                } else {
+                    ModeOptionCard("متقدم", "بروكسي النظام عبر ADB", true, !running && !starting && !checkingEndpoint, Modifier.fillMaxWidth()) { mode = "advanced"; error = null }
+                }
+                ExpandableDetails("معلومات الاتصال") {
+                    Text(
+                        if (mode == "vpn") "اتصال VPN يبدأ بعد موافقة Android؛ لا يتطلب إعداد المطوّر."
+                        else "يتطلب الوضع المتقدم اتصال Wireless ADB، ويعمل مع التطبيقات التي تحترم بروكسي النظام.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Text(
-                    if (mode == "vpn")
-                        "اضغط اتصال ووافق على نافذة Android الوحيدة — من دون إعدادات مطوّر أو تطبيقات إضافية."
-                    else
-                        "يتطلب إعداد التصحيح اللاسلكي مرة واحدة، ويعمل مع التطبيقات التي تحترم بروكسي النظام.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 if (mode == "vpn") {
                     Text(
-                        if (protocol == "socks5")
-                            "WebRTC / UDP: يمر عبر SOCKS5 داخل نفق VPN. نتحقق أولًا من UDP ASSOCIATE، ولا نسمح بمسار مباشر بديل."
-                        else
-                            "بروكسي HTTP لا ينقل UDP الخاص بـ WebRTC؛ اختر SOCKS5 يدعم UDP إذا أردت مكالمات WebRTC عبر البروكسي.",
+                        "يتم تكييف الاتصال تلقائيًا مع قدرات البروكسي؛ بروكسيات SOCKS5 التي لا تدعم UDP تعمل عبر TCP بشكل طبيعي.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (protocol == "socks5") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.secondary,
                     )
                 }
             }
         }
 
-        // ── Saved proxy profiles: available in both connection modes ──────────
-        item {
+        if (featureTab == "connection" && mode == "advanced") item {
+            AdvancedWebRtcToggle(
+                rootAvailable = rootAvailable,
+                checked = blockWebRtcEnabled,
+                enabled = !running && !starting && !checkingEndpoint && !stopping,
+                onCheckedChange = { enabled ->
+                    blockWebRtcEnabled = enabled
+                    context.getSharedPreferences("advanced_connection_options", Context.MODE_PRIVATE)
+                        .edit().putBoolean("block_webrtc", enabled).apply()
+                },
+            )
+        }
+
+        // ── Saved proxy profiles ─────────────────────────────────────────────────
+        if (featureTab == "connection") item {
             SavedProxyManagerCard(
                 profiles = savedProxies,
                 selectedId = selectedSavedProxyId,
@@ -1254,275 +1674,46 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        // ── Advanced proxy setup (embedded Wireless ADB)
-        if (mode == "advanced") item {
-            var pairingCode by remember { mutableStateOf("") }
-            var pairing by remember { mutableStateOf(false) }
-            val scope = rememberCoroutineScope()
-
-            SetupStepCard(
-                stepNumber = 2,
-                title = "الوضع المتقدم: بروكسي النظام",
-                subtitle = "ADB مضمّن؛ يعمل مع التطبيقات التي تحترم بروكسي النظام، وقد تتجاوزه بعض التطبيقات.",
-                isComplete = wirelessState == WirelessDebuggingManager.DebuggingState.READY,
-                statusText = when (wirelessState) {
-                    WirelessDebuggingManager.DebuggingState.UNSUPPORTED_ANDROID_VERSION -> "Android 11 أو أحدث مطلوب"
-                    WirelessDebuggingManager.DebuggingState.DEVELOPER_DISABLED -> "وضع المطور معطل"
-                    WirelessDebuggingManager.DebuggingState.WIRELESS_DISABLED -> "التصحيح اللاسلكي معطل"
-                    WirelessDebuggingManager.DebuggingState.NOT_PAIRED -> "بانتظار رمز الاقتران"
-                    WirelessDebuggingManager.DebuggingState.PAIRED_NOT_CONNECTED -> "جارٍ الاتصال"
-                    WirelessDebuggingManager.DebuggingState.READY -> "جاهز"
-                }
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    when (wirelessState) {
-                        WirelessDebuggingManager.DebuggingState.UNSUPPORTED_ANDROID_VERSION -> {
-                            Text(
-                                "يتطلب الوضع المتقدم Android 11 أو أحدث لدعم التصحيح اللاسلكي المضمّن. استخدم وضع VPN بلمسة واحدة على هذا الجهاز.",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        WirelessDebuggingManager.DebuggingState.DEVELOPER_DISABLED -> {
-                            Text("الخطوة 1: فعّل خيارات المطور من إعدادات الهاتف.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                            Button(onClick = { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }, Modifier.fillMaxWidth()) { Text("فتح الإعدادات") }
-                        }
-                        WirelessDebuggingManager.DebuggingState.WIRELESS_DISABLED -> {
-                            Text("الخطوة 2: افتح خيارات المطوّر وفعّل Wireless debugging.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                            Button(onClick = ::openDeveloperOptions, Modifier.fillMaxWidth()) { Text("فتح إعدادات التصحيح اللاسلكي") }
-                        }
-                        WirelessDebuggingManager.DebuggingState.NOT_PAIRED,
-                        WirelessDebuggingManager.DebuggingState.PAIRED_NOT_CONNECTED -> {
-                            Text(
-                                if (wirelessState == WirelessDebuggingManager.DebuggingState.PAIRED_NOT_CONNECTED)
-                                    "الاقتران محفوظ لكن اتصال ADB انقطع. جرّب إعادة الاتصال، أو أعد الاقتران إذا ألغيت الجهاز من إعدادات Android."
-                                else
-                                    "افتح Wireless debugging ثم Pair device with pairing code. أدخل الرمز من إشعار التطبيق أو اكتبه هنا يدويًا.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            OutlinedButton(
-                                onClick = ::openDeveloperOptions,
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !pairing,
-                            ) { Text("فتح خيارات المطوّر") }
-                            OutlinedButton(
-                                onClick = ::ensurePairingNotification,
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !pairing,
-                            ) { Text("إظهار إشعار إدخال رمز الاقتران") }
-                            OutlinedTextField(
-                                value = pairingCode,
-                                onValueChange = { value -> pairingCode = PairingCodeInput.digitsOnly(value).take(6) },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("رمز الاقتران (6 أرقام فقط)") },
-                                singleLine = true,
-                                enabled = !pairing,
-                                visualTransformation = PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                            )
-                            Button(
-                                onClick = {
-                                    pairing = true
-                                    error = null
-                                    scope.launch {
-                                        val result = withContext(Dispatchers.IO) { WirelessDebuggingManager.pair(context, pairingCode) }
-                                        pairing = false
-                                        result.onSuccess {
-                                            pairingCode = ""
-                                            wirelessState = WirelessDebuggingManager.DebuggingState.READY
-                                            error = null
-                                        }.onFailure {
-                                            error = ProxyFailureMessages.pairing(it.message)
-                                            wirelessState = withContext(Dispatchers.IO) {
-                                                WirelessDebuggingManager.checkState(context)
-                                            }
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = pairingCode.length == 6 && !pairing
-                            ) {
-                                if (pairing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                                else Text("اقتران واتصال تلقائي")
-                            }
-                            if (wirelessState == WirelessDebuggingManager.DebuggingState.PAIRED_NOT_CONNECTED) {
-                                OutlinedButton(
-                                    onClick = {
-                                        pairing = true
-                                        error = null
-                                        scope.launch {
-                                            val connected = withContext(Dispatchers.IO) {
-                                                WirelessDebuggingManager.connect(context, 0)
-                                            }
-                                            pairing = false
-                                            if (connected) {
-                                                wirelessState = WirelessDebuggingManager.DebuggingState.READY
-                                            } else {
-                                                error = ProxyFailureMessages.pairing("Wireless debugging reconnect failed")
-                                                wirelessState = withContext(Dispatchers.IO) {
-                                                    WirelessDebuggingManager.checkState(context)
-                                                }
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    enabled = !pairing
-                                ) { Text(if (pairing) "جارٍ إعادة الاتصال…" else "إعادة الاتصال عبر ADB") }
-                            }
-                            Text("لا تدخل IP أو أي منفذ؛ سيتم اكتشافهما تلقائيًا.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        WirelessDebuggingManager.DebuggingState.READY -> {
-                            Text("تم الاقتران والاتصال عبر ADB المضمّن بنجاح.", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = SuccessGreen)
-                            Text("يمكنك الآن تشغيل الوضع المتقدم.", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-        }
-
-        if (mode == "advanced") item {
-            KUNCard {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.material3.Checkbox(
-                            checked = matchProxyTimezone,
-                            onCheckedChange = { enabled ->
-                                matchProxyTimezone = enabled
-                                context.getSharedPreferences(
-                                    "advanced_proxy_timezone_options",
-                                    Context.MODE_PRIVATE,
-                                ).edit().putBoolean("enabled", enabled).apply()
-                                error = null
-                            },
-                            enabled = !running && !starting && !checkingEndpoint && !stopping,
-                        )
-                        Text(
-                            "تعديل المنطقة الزمنية بما يناسب البروكسي",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    Text(
-                        "عند الاتصال، يحدد التطبيق المنطقة الزمنية لبلد خروج البروكسي عبر اتصال البروكسي ويطبقها على الهاتف. تُحفظ منطقتك الزمنية الحالية وإعداد الضبط التلقائي وتُستعاد عند إيقاف البروكسي.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        "تُرسل خدمة تحديد الموقع طلب GeoIP إلى ipwho.is عبر البروكسي المختار. عند تفعيل مطابقة اللغة سيغيّر التطبيق لغة الهاتف كاملة عبر ADB ويحفظها لاستعادتها عند الإيقاف.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.material3.Checkbox(
-                            checked = matchProxyLanguage,
-                            onCheckedChange = { enabled ->
-                                matchProxyLanguage = enabled
-                                context.getSharedPreferences("advanced_proxy_language_options", Context.MODE_PRIVATE)
-                                    .edit().putBoolean("enabled", enabled).apply()
-                                error = null
-                            },
-                            enabled = !running && !starting && !checkingEndpoint && !stopping,
-                        )
-                        Text("تعديل لغة الهاتف بما يناسب البروكسي", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    }
-                    Text(
-                        "يحدد اللغة تلقائيًا من دولة خروج البروكسي، ويطبّقها على الهاتف والتطبيقات عبر Wireless ADB. يجب إبقاء اتصال ADB جاهزًا، وقد تعيد بعض التطبيقات إنشاء واجهتها.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        if (featureTab == "advanced") item {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                PageHeading("إعدادات مستقلة", "خيارات متقدمة", "طبّق المنطقة الزمنية أو الموقع الوهمي كخدمة مستقلة عن تشغيل البروكسي.")
+                if (!wirelessReady) {
+                    AdbRequiredPanel(
+                        modifier = Modifier.fillMaxWidth(),
+                        title = "اتصال ADB مطلوب",
+                        description = "فعّل Wireless ADB من تبويب ADB أولًا حتى يستطيع التطبيق تطبيق إعدادات النظام بأمان.",
+                        onGoToAdb = onGoToAdb,
                     )
                 }
-            }
-        }
-
-        // ── Mock location ────────────────────────────────────────────────────
-        item {
-            KUNCard {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text("موقع وهمي اختياري", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.material3.Checkbox(
-                            checked = mockLocation,
-                            onCheckedChange = { enabled ->
-                                mockLocation = enabled
-                                mockLocationAuthorized = null
-                                mockLocationStatus = if (enabled) {
-                                    "افتح خطوة الإعداد أدناه واختر هذا التطبيق قبل الاتصال."
-                                } else {
-                                    "غير مفعّل"
-                                }
-                                context.getSharedPreferences("mock_location_options", Context.MODE_PRIVATE)
-                                    .edit().putBoolean("enabled", enabled).apply()
-                                if (!enabled) locationController.stop()
-                                error = null
-                            },
-                            enabled = !running && !starting && !checkingEndpoint && !stopping,
-                        )
-                        Text("تفعيل الموقع الوهمي")
-                    }
-                    if (mockLocation) {
-                        Text(
-                            "خطوة الإعداد: افتح خيارات المطوّر ← اختيار تطبيق الموقع الوهمي ← Kun cloak. Android يطلب اختيار التطبيق يدويًا ولا يسمح للتطبيق بتجاوز شاشة الاختيار.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            mockLocationStatus,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = when (mockLocationAuthorized) {
-                                true -> SuccessGreen
-                                false -> MaterialTheme.colorScheme.error
-                                null -> MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                        OutlinedButton(
-                            onClick = ::openMockLocationSettings,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !running && !starting && !checkingEndpoint && !stopping,
-                        ) {
-                            Text(if (mockLocationAuthorized == true) "إعادة التحقق من اختيار التطبيق" else "اختيار تطبيق الموقع الوهمي")
-                        }
-                        Text(
-                            "عند الاتصال سيطلب Android إذن الموقع التقريبي فقط لإرسال الموقع الوهمي إلى Google Maps؛ التطبيق لا يقرأ موقعك الحقيقي ولا يطلب موقعًا دقيقًا.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = locationMode == "auto",
-                            onClick = { locationMode = "auto" },
-                            label = { Text("تلقائي") },
-                            enabled = !running && !starting && !checkingEndpoint && !stopping,
-                        )
-                        FilterChip(
-                            selected = locationMode == "manual",
-                            onClick = { locationMode = "manual" },
-                            label = { Text("يدوي") },
-                            enabled = !running && !starting && !checkingEndpoint && !stopping,
-                        )
-                    }
-                    if (locationMode == "manual") {
+                KUNCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("المنطقة الزمنية", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("يتم اكتشافها من البروكسي المحفوظ وتطبيقها مؤقتًا على الجهاز. لا تبدأ اتصال النظام.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = latitude,
-                                onValueChange = { latitude = it },
-                                modifier = Modifier.weight(1f),
-                                label = { Text("خط العرض") },
-                                singleLine = true,
-                                enabled = !running && !starting && !checkingEndpoint && !stopping,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            )
-                            OutlinedTextField(
-                                value = longitude,
-                                onValueChange = { longitude = it },
-                                modifier = Modifier.weight(1f),
-                                label = { Text("خط الطول") },
-                                singleLine = true,
-                                enabled = !running && !starting && !checkingEndpoint && !stopping,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            )
+                            KUNPrimaryButton("تطبيق المنطقة", onClick = ::applyFeatureTimezone, enabled = wirelessReady && !featureLoading && !running, modifier = Modifier.weight(1f), loading = featureLoading && !AdvancedProxyTimezoneController.hasPendingRestore(context))
+                            KUNSecondaryButton("استعادة الأصلية", onClick = ::restoreFeatureTimezone, enabled = wirelessReady && !featureLoading && AdvancedProxyTimezoneController.hasPendingRestore(context), modifier = Modifier.weight(1f))
                         }
+                    }
+                }
+                KUNCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("محاكاة الموقع", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("اختر البروكسي المحفوظ ثم طبّق الموقع الوهمي. سيبقى مستقلًا عن زر تشغيل البروكسي.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = locationMode == "auto", onClick = { locationMode = "auto" }, label = { Text("موقع البروكسي تلقائيًا") }, enabled = !featureLoading)
+                            FilterChip(selected = locationMode == "manual", onClick = { locationMode = "manual" }, label = { Text("إحداثيات يدوية") }, enabled = !featureLoading)
+                        }
+                        if (locationMode == "manual") Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(latitude, { latitude = it }, Modifier.weight(1f), label = { Text("خط العرض") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                            OutlinedTextField(longitude, { longitude = it }, Modifier.weight(1f), label = { Text("خط الطول") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            KUNPrimaryButton("تطبيق الموقع", onClick = ::startIndependentLocation, enabled = wirelessReady && selectedSavedProxyId != null && !featureLoading && !running, modifier = Modifier.weight(1f), loading = featureLoading)
+                            KUNSecondaryButton("إيقاف الموقع", onClick = ::stopIndependentLocation, enabled = !featureLoading && mockLocationAuthorized == true, modifier = Modifier.weight(1f))
+                        }
+                        featureStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("تم")) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant) }
+                        Text("قبل التطبيق: اختر البروكسي من تبويب الاتصال، ثم تأكد من اختيار Kun cloak كتطبيق موقع وهمي من خيارات المطوّر.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(onClick = ::openMockLocationSettings, modifier = Modifier.fillMaxWidth(), enabled = !featureLoading) { Text("فتح إعداد تطبيق الموقع الوهمي") }
                     }
                 }
             }
@@ -1533,11 +1724,7 @@ class MainActivity : ComponentActivity() {
                 AdvancedProxyTimezoneController.hasPendingRestore(context))
         ) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "توجد جلسة متقدمة سابقة لم تكتمل استعادة إعداداتها. أعد اتصال ADB ثم استعد المنطقة الزمنية والبروكسي قبل بدء جلسة جديدة.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("جلسة سابقة تحتاج إلى استعادة الإعدادات.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedButton(
                     onClick = ::stopAdvanced,
                     enabled = !stopping,
@@ -1549,8 +1736,8 @@ class MainActivity : ComponentActivity() {
     }
 
     val hasDetails = selectedSavedProxyId != null && host.isNotBlank() && port.isNotBlank()
-    val canConnect = hasDetails && (mode == "vpn" || wirelessState == WirelessDebuggingManager.DebuggingState.READY)
-    Surface(
+    val canConnect = hasDetails && (mode == "vpn" || wirelessReady)
+    if (featureTab == "connection") Surface(
         modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding(),
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
@@ -1562,7 +1749,17 @@ class MainActivity : ComponentActivity() {
         ) {
             AnimatedVisibility(visible = error != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(13.dp)) {
-                    Text(error.orEmpty(), Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall, maxLines = 8)
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Text(
+                            error.orEmpty().lineSequence().firstOrNull().orEmpty(),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                        )
+                        ExpandableDetails("تفاصيل المشكلة") {
+                            Text(error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
             Button(
@@ -1595,44 +1792,48 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun SetupStepCard(
-    stepNumber: Int,
-    title: String,
-    subtitle: String,
-    isComplete: Boolean,
-    statusText: String,
-    content: @Composable () -> Unit
+@Composable
+private fun AdvancedWebRtcToggle(
+    rootAvailable: Boolean,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, if (isComplete) KunPalette.Success.copy(alpha = 0.35f) else KunPalette.Border),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    val accent = if (rootAvailable) KunPalette.Success else KunPalette.Error
+    val container = if (rootAvailable) KunPalette.SuccessSoft else KunPalette.ErrorSoft
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color = container,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(
-                        Modifier.size(34.dp).background(if (isComplete) SuccessGreen else MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(if (isComplete) "✓" else stepNumber.toString(), color = if (isComplete) Color.White else MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                FeaturePill(
-                    statusText,
-                    color = if (isComplete) KunPalette.Success else KunPalette.Primary,
-                    container = if (isComplete) KunPalette.SuccessSoft else MaterialTheme.colorScheme.primaryContainer,
+        Row(
+            Modifier.fillMaxWidth()
+                .clickable(enabled = rootAvailable && enabled) { onCheckedChange(!checked) }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("حجب WebRTC", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = accent)
+                Text(
+                    if (rootAvailable) "صلاحية الروت متاحة؛ سيُطبّق الحجب أثناء تشغيل الوضع المتقدم فقط."
+                    else "غير متاح — يتطلب صلاحية الروت، ولا يمكن تفعيل هذا الخيار دونها.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = accent,
+                )
+                Text(
+                    "يحظر UDP باستثناء DNS/53، ويمنع منافذ STUN/TURN الشائعة؛ قد تتأثر تطبيقات UDP، ولا يمكن ضمان منع TURN عبر HTTPS/443.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            AnimatedVisibility(visible = !isComplete, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                Column { content() }
-            }
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = rootAvailable && enabled,
+            )
         }
     }
 }
@@ -1663,7 +1864,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun startLocalProxyService(context: Context, protocol: String, host: String, port: String, username: String, password: String) {
+private fun startLocalProxyService(context: Context, protocol: String, host: String, port: String, username: String, password: String, blockWebRtc: Boolean, allowUdp: Boolean) {
     val intent = Intent(context, ProxyLocalService::class.java).apply {
         action = ProxyLocalService.ACTION_START
         putExtra(ProxyLocalService.EXTRA_PROTOCOL, protocol)
@@ -1671,6 +1872,8 @@ private fun startLocalProxyService(context: Context, protocol: String, host: Str
         putExtra(ProxyLocalService.EXTRA_PORT, port.toInt())
         putExtra(ProxyLocalService.EXTRA_USERNAME, username)
         putExtra(ProxyLocalService.EXTRA_PASSWORD, password)
+        putExtra(ProxyLocalService.EXTRA_BLOCK_WEBRTC, blockWebRtc)
+        putExtra(ProxyLocalService.EXTRA_ALLOW_UDP, allowUdp)
         putExtra(ProxyLocalService.EXTRA_LOCAL_PORT, ProxyLocalService.DEFAULT_LOCAL_PORT)
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
