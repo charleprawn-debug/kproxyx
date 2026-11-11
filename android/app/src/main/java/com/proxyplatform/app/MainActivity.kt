@@ -127,7 +127,19 @@ internal data class WalletTransaction(val amount: Double, val description: Strin
 internal data class TopUpMethod(val code: String, val name: String, val currency: String, val network: String, val address: String, val minAmount: Double, val exchangeRate: Double, val instructions: String)
 internal data class TopUpRequest(val id: String, val methodCode: String, val amount: Double, val currency: String, val expectedUsd: Double, val reference: String, val status: String, val createdAt: String)
 internal data class FeatureAccess(val advanced: Boolean = false, val sim: Boolean = false, val vpn: Boolean = false, val mockLocation: Boolean = false)
-internal data class AppNotification(val id: String, val title: String, val message: String, val read: Boolean, val createdAt: String)
+internal data class AppNotification(
+    val id: String,
+    val title: String,
+    val message: String,
+    val read: Boolean,
+    val createdAt: String,
+    val type: String = "",
+)
+internal data class SupportMessagesPage(
+    val messages: List<AppNotification>,
+    val unreadCount: Int,
+    val hasMore: Boolean,
+)
 internal enum class Screen { SUBSCRIPTIONS, PROXY, BROADCAST, SIM, ADB, PROFILE, WALLET }
 
 private val SuccessGreen = KunPalette.Success
@@ -246,10 +258,22 @@ internal class ApiClient(context: Context) {
     }
     fun notifications(): List<AppNotification> {
         val result = request("/me/notifications").optJSONArray("data")?.let { rows ->
-            (0 until rows.length()).map { i -> rows.getJSONObject(i).let { AppNotification(it.getString("id"), it.optString("title"), it.optString("message"), it.optBoolean("is_read"), it.optString("created_at")) } }
+            (0 until rows.length()).map { i -> rows.getJSONObject(i).let { AppNotification(it.getString("id"), it.optString("title"), it.optString("message"), it.optBoolean("is_read"), it.optString("created_at"), it.optString("notification_type")) } }
         } ?: emptyList()
         showUnreadNotifications(result)
         return result
+    }
+    fun supportMessages(offset: Int, limit: Int = 50): SupportMessagesPage {
+        val safeOffset = offset.coerceIn(0, 1_000_000)
+        val safeLimit = limit.coerceIn(1, 100)
+        val body = request("/me/support-messages?offset=$safeOffset&limit=$safeLimit")
+        val rows = body.optJSONArray("data")
+        val messages = if (rows == null) emptyList() else (0 until rows.length()).map { index ->
+            rows.getJSONObject(index).let { item ->
+                AppNotification(item.getString("id"), item.optString("title"), item.optString("message"), item.optBoolean("is_read", false), item.optString("created_at"), item.optString("notification_type"))
+            }
+        }
+        return SupportMessagesPage(messages, body.optInt("unreadCount", 0).coerceAtLeast(0), body.optBoolean("hasMore", false))
     }
     private fun showUnreadNotifications(items: List<AppNotification>) {
         if (items.none { !it.read }) return
@@ -427,8 +451,45 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
     var activationError by mutableStateOf<String?>(null); private set
     var wirelessState by mutableStateOf(WirelessDebuggingManager.DebuggingState.NOT_PAIRED); private set
     var notifications by mutableStateOf<List<AppNotification>>(emptyList()); private set
+    var supportMessages by mutableStateOf<List<AppNotification>>(emptyList()); private set
+    var unreadSupportMessageCount by mutableStateOf(0); private set
+    var supportMessagesLoading by mutableStateOf(false); private set
+    var supportMessagesError by mutableStateOf<String?>(null); private set
+    var supportMessagesHasMore by mutableStateOf(false); private set
+    private val pendingNotificationReads = mutableSetOf<String>()
     fun loadNotifications() = viewModelScope.launch(Dispatchers.IO) { runCatching { apiClient.notifications() }.onSuccess { withContext(Dispatchers.Main) { notifications = it } } }
-    fun markNotificationRead(id: String) = viewModelScope.launch(Dispatchers.IO) { runCatching { apiClient.markNotificationRead(id) }; withContext(Dispatchers.Main) { notifications = notifications.map { if (it.id == id) it.copy(read = true) else it } } }
+    fun loadSupportMessages(reset: Boolean = false) {
+        if (supportMessagesLoading || (!reset && !supportMessagesHasMore)) return
+        val offset = if (reset) 0 else supportMessages.size
+        supportMessagesLoading = true
+        supportMessagesError = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { apiClient.supportMessages(offset) }
+            withContext(Dispatchers.Main) {
+                supportMessagesLoading = false
+                result.onSuccess { page ->
+                    supportMessages = if (offset == 0) page.messages else (supportMessages + page.messages).distinctBy { it.id }
+                    unreadSupportMessageCount = page.unreadCount
+                    supportMessagesHasMore = page.hasMore
+                }.onFailure { supportMessagesError = it.message ?: "تعذر تحميل رسائل الدعم." }
+            }
+        }
+    }
+    fun markNotificationRead(id: String) {
+        val known = notifications.firstOrNull { it.id == id } ?: supportMessages.firstOrNull { it.id == id }
+        if (known?.read == true || !pendingNotificationReads.add(id)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { apiClient.markNotificationRead(id) }
+            withContext(Dispatchers.Main) {
+                pendingNotificationReads.remove(id)
+                if (result.isSuccess) {
+                    notifications = notifications.map { if (it.id == id) it.copy(read = true) else it }
+                    supportMessages = supportMessages.map { if (it.id == id) it.copy(read = true) else it }
+                    if (known?.type == "admin_broadcast") unreadSupportMessageCount = (unreadSupportMessageCount - 1).coerceAtLeast(0)
+                } else if (known?.type == "admin_broadcast") supportMessagesError = result.exceptionOrNull()?.message ?: "تعذر حفظ حالة قراءة الرسالة."
+            }
+        }
+    }
 
     private var profileLoaded = false
     private var subscriptionsLoaded = false
@@ -447,6 +508,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
         loadPlansAndWallet(force = true)
         loadSubscriptions(force = true)
         loadNotifications()
+        loadSupportMessages(reset = true)
         if (profile != null) loadProfile(force = true)
         if (walletDetailsLoaded) loadWalletDetails(force = true)
     }

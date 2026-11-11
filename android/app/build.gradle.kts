@@ -33,6 +33,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        aidl = true
     }
     signingConfigs {
         create("release") {

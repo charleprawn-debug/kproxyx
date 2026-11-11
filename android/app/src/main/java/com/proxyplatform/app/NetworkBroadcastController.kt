@@ -5,10 +5,11 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.suspendCoroutine
 import rikka.shizuku.Shizuku
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.Continuation
 
 /** Owns the shell-privileged Shizuku UserService used by the broadcast tab. */
 internal object NetworkBroadcastController {
@@ -17,7 +18,7 @@ internal object NetworkBroadcastController {
     ).daemon(true).tag("kuncloak-broadcast").version(1)
 
     private var remote: IBroadcastShellService? = null
-    private var pending: kotlinx.coroutines.CancellableContinuation<IBroadcastShellService>? = null
+    private var pending: Continuation<IBroadcastShellService>? = null
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             val service = binder?.let { IBroadcastShellService.Stub.asInterface(it) }
@@ -42,17 +43,13 @@ internal object NetworkBroadcastController {
         }
     }
 
-    private suspend fun bind(): IBroadcastShellService = suspendCancellableCoroutine { continuation ->
+    private suspend fun bind(): IBroadcastShellService = suspendCoroutine { continuation ->
         pending = continuation
         try {
             Shizuku.bindUserService(args, connection)
         } catch (failure: Throwable) {
             pending = null
             continuation.resumeWithException(failure)
-        }
-        continuation.invokeOnCancellation {
-            pending = null
-            runCatching { Shizuku.unbindUserService(args, connection, false) }
         }
     }
 }
