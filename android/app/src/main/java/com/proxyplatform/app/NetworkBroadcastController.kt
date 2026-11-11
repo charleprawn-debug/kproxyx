@@ -5,11 +5,11 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.suspendCoroutine
 import rikka.shizuku.Shizuku
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.Continuation
+import kotlin.coroutines.suspendCoroutine
 
 /** Owns the shell-privileged Shizuku UserService used by the broadcast tab. */
 internal object NetworkBroadcastController {
