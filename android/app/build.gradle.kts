@@ -23,9 +23,12 @@ val gomobileBind by tasks.registering(Exec::class) {
     }
     commandLine(File(goBin, "gomobile").absolutePath, "bind", "-target=android/arm64", "-androidapi", "26", "-o", outputAar.get().asFile.absolutePath, ".")
     doLast {
-        project.exec {
-            commandLine("python3", rootProject.file("tools/strip_gomobile_runtime.py"), outputAar.get().asFile.absolutePath)
-        }
+        val process = ProcessBuilder(
+            "python3",
+            rootProject.file("tools/strip_gomobile_runtime.py").absolutePath,
+            outputAar.get().asFile.absolutePath,
+        ).inheritIO().start()
+        check(process.waitFor() == 0) { "Failed to strip duplicated gomobile runtime" }
     }
 }
 
