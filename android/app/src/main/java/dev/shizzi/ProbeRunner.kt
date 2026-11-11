@@ -1,5 +1,6 @@
 package dev.shizzi
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.LinkAddress
 import android.net.Network
@@ -177,6 +178,7 @@ class ProbeRunner(private val context: Context) {
         )
     }
 
+    @SuppressLint("NewApi")
     private fun awaitCallbackDelivery(interfaceName: String): Pair<Boolean, String> {
         val manager = context.connectivityManager()
         val latch = java.util.concurrent.CountDownLatch(1)
