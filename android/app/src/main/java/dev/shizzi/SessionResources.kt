@@ -1,5 +1,6 @@
 package dev.shizzi
 
+import android.annotation.SuppressLint
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkRequest
@@ -41,6 +42,7 @@ class SessionResources(
         return name
     }
 
+    @SuppressLint("NewApi")
     private fun requestKeepAlive() {
         val request = NetworkRequest.Builder()
             .clearCapabilities()
