@@ -11,11 +11,11 @@ val gomobileBind by tasks.registering(Exec::class) {
     inputs.dir(goModule).withPropertyName("goSources")
     outputs.file(outputAar).withPropertyName("aar")
     val goBin = File(System.getProperty("user.home"), "go/bin")
-    val ndk = android.ndkDirectory
+    val ndk = File(System.getenv("ANDROID_NDK_HOME") ?: error("ANDROID_NDK_HOME is required"))
     workingDir = goModule.asFile
     environment("PATH", "${goBin.absolutePath}:${System.getenv("PATH")}")
     environment("ANDROID_NDK_HOME", ndk.absolutePath)
-    environment("ANDROID_HOME", android.sdkDirectory.absolutePath)
+    environment("ANDROID_HOME", System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT") ?: "")
     doFirst {
         val gomobile = File(goBin, "gomobile")
         check(gomobile.exists()) { "gomobile is required to build the embedded shizzi datapath" }
