@@ -99,6 +99,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation(files("libs/libbox.aar"))
