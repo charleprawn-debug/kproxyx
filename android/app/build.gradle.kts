@@ -22,6 +22,11 @@ val gomobileBind by tasks.registering(Exec::class) {
         outputAar.get().asFile.parentFile.mkdirs()
     }
     commandLine(File(goBin, "gomobile").absolutePath, "bind", "-target=android/arm64", "-androidapi", "26", "-o", outputAar.get().asFile.absolutePath, ".")
+    doLast {
+        exec {
+            commandLine("python3", rootProject.file("tools/strip_gomobile_runtime.py"), outputAar.get().asFile.absolutePath)
+        }
+    }
 }
 
 android {
