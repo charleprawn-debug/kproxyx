@@ -56,11 +56,21 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.3'
+          cache-dependency-path: android/datapath/go.sum
       - uses: android-actions/setup-android@v4
         with:
           accept-android-sdk-licenses: true
       - name: Install Android SDK packages
-        run: sdkmanager --channel=3 "platforms;android-35" "platforms;android-37.2" "build-tools;35.0.0" "build-tools;37.0.0"
+        run: sdkmanager --channel=3 "platforms;android-35" "platforms;android-37.2" "build-tools;35.0.0" "build-tools;37.0.0" "ndk;27.0.12077973"
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
+      - name: Test datapath
+        run: cd android/datapath && go test ./...
       - name: Configure API endpoint
         run: echo "API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.kun.publicvm.com:10059/api/v1' }}" >> gradle.properties
       - run: chmod +x gradlew

@@ -1,6 +1,27 @@
+import org.gradle.api.tasks.Exec
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val gomobileBind by tasks.registering(Exec::class) {
+    val goModule = rootProject.layout.projectDirectory.dir("datapath")
+    val outputAar = layout.buildDirectory.file("gomobile/datapath.aar")
+    inputs.dir(goModule).withPropertyName("goSources")
+    outputs.file(outputAar).withPropertyName("aar")
+    val goBin = File(System.getProperty("user.home"), "go/bin")
+    val ndk = android.ndkDirectory
+    workingDir = goModule.asFile
+    environment("PATH", "${goBin.absolutePath}:${System.getenv("PATH")}")
+    environment("ANDROID_NDK_HOME", ndk.absolutePath)
+    environment("ANDROID_HOME", android.sdkDirectory.absolutePath)
+    doFirst {
+        val gomobile = File(goBin, "gomobile")
+        check(gomobile.exists()) { "gomobile is required to build the embedded shizzi datapath" }
+        outputAar.get().asFile.parentFile.mkdirs()
+    }
+    commandLine(File(goBin, "gomobile").absolutePath, "bind", "-target=android/arm64", "-androidapi", "26", "-o", outputAar.get().asFile.absolutePath, ".")
 }
 
 android {
@@ -20,6 +41,7 @@ android {
             "API_BASE_URL",
             "\"${providers.gradleProperty("API_BASE_URL").orElse("https://api.kun.publicvm.com:10059/api/v1").get()}\"",
         )
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildTypes {
@@ -30,6 +52,7 @@ android {
         debug { applicationIdSuffix = ".debug" }
     }
 
+    ndkVersion = "27.0.12077973"
     buildFeatures {
         compose = true
         buildConfig = true
@@ -66,6 +89,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(files(layout.buildDirectory.file("gomobile/datapath.aar")))
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.ui:ui")
@@ -92,3 +116,5 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }
+
+tasks.named("preBuild") { dependsOn(gomobileBind) }

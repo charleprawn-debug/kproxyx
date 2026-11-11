@@ -10,3 +10,8 @@ Shizuku API/provider 13.1.5 are used by the optional Network Broadcast feature.
 Source: https://github.com/RikkaApps/Shizuku
 The feature requires the user-installed Shizuku service and does not bundle
 the Shizuku service itself.
+
+The Network Broadcast session layer is adapted from shizzi:
+https://github.com/carlelieser/shizzi
+The embedded datapath is built from the shizzi datapath module and its Go
+dependencies. Upstream notices and dependency licenses remain applicable.
