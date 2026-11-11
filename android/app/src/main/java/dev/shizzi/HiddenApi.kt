@@ -225,6 +225,7 @@ class TestNetworkApi(private val context: Context) {
         method.invoke(instance, argument)
     }.getOrNull()
 
+    @SuppressLint("NewApi")
     fun setupTestNetwork(interfaceName: String, dnsServers: List<InetAddress>, binder: IBinder) {
         val instance = manager ?: error("setupTestNetwork: test_network service unavailable")
         val owner = managerClass ?: error("setupTestNetwork: TestNetworkManager class absent")
