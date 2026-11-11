@@ -70,7 +70,7 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
       - name: Test datapath
-        run: cd android/datapath && go test ./...
+        run: cd datapath && go test ./...
       - name: Configure API endpoint
         run: echo "API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.kun.publicvm.com:10059/api/v1' }}" >> gradle.properties
       - run: chmod +x gradlew
