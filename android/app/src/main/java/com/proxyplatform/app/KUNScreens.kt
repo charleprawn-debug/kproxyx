@@ -248,6 +248,7 @@ internal fun MainShell(vm: AppViewModel) {
             }
             Screen.SUBSCRIPTIONS -> vm.loadSubscriptions()
             Screen.PROXY -> Unit
+            Screen.BROADCAST -> Unit
             Screen.SIM -> Unit
             Screen.ADB -> Unit
             Screen.WALLET -> { vm.loadPlansAndWallet(); vm.loadWalletDetails() }
@@ -257,6 +258,7 @@ internal fun MainShell(vm: AppViewModel) {
     val sectionTitle = when (screen) {
         Screen.SUBSCRIPTIONS -> "اشتراكاتي"
         Screen.PROXY -> "اتصال البروكسي"
+        Screen.BROADCAST -> "بث شبكة"
         Screen.SIM -> "SIM"
         Screen.ADB -> "ADB"
         Screen.PROFILE -> "حسابي"
@@ -295,6 +297,7 @@ internal fun MainShell(vm: AppViewModel) {
                 val entries = listOf(
                     Triple(Screen.SUBSCRIPTIONS, "الخطط", R.drawable.ic_nav_subscriptions),
                     Triple(Screen.PROXY, "الاتصال", R.drawable.ic_nav_proxy),
+                    Triple(Screen.BROADCAST, "البث", R.drawable.ic_nav_broadcast),
                     Triple(Screen.ADB, "ADB", R.drawable.ic_nav_adb),
                     Triple(Screen.SIM, "SIM", R.drawable.ic_nav_sim),
                     Triple(Screen.PROFILE, "حسابي", R.drawable.ic_nav_profile),
@@ -347,6 +350,17 @@ internal fun MainShell(vm: AppViewModel) {
                         advancedAllowed = vm.access.advanced,
                         onGoToAdb = { screen = Screen.ADB },
                         api = vm.apiClient,
+                    )
+                }
+                Screen.BROADCAST -> AccountFeatureGate(
+                    vm = vm,
+                    allowed = vm.access.vpn,
+                    onShowPlans = { screen = Screen.SUBSCRIPTIONS },
+                ) {
+                    NetworkBroadcastScreen(
+                        vm = vm,
+                        padding = padding,
+                        onGoToAdb = { screen = Screen.ADB },
                     )
                 }
                 Screen.SIM -> AccountFeatureGate(

@@ -1,0 +1,203 @@
+package com.proxyplatform.app
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.item
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+@Composable
+internal fun NetworkBroadcastScreen(
+    vm: AppViewModel,
+    padding: PaddingValues,
+    onGoToAdb: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var shizukuStatus by remember { mutableStateOf(ShizukuGate.status()) }
+    var running by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val adbReady = vm.wirelessState == WirelessDebuggingManager.DebuggingState.READY
+    val shizukuReady = shizukuStatus is ShizukuStatus.Ready
+    val vpnReady = ProxyVpnService.isRunning(context)
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            shizukuStatus = ShizukuGate.status()
+            if (running && shizukuReady) {
+                val live = withContext(Dispatchers.IO) { NetworkBroadcastController.status().getOrNull() }
+                if (live.isNullOrBlank()) running = false
+            }
+            delay(2_500)
+        }
+    }
+
+    fun showFailure(failure: Throwable?) {
+        message = failure?.message?.takeIf { it.isNotBlank() }
+            ?: "تعذر تشغيل جلسة بث الشبكة. تحقق من Shizuku وADB ثم أعد المحاولة."
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            PageHeading(
+                eyebrow = "Kun cloak",
+                title = "بث شبكة",
+                subtitle = "شارك اتصال البروكسي مع جهاز آخر عبر جلسة Shizuku المحمية.",
+            )
+        }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(30.dp),
+                colors = CardDefaults.cardColors(containerColor = KunPalette.PrimaryDeep),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .background(Brush.linearGradient(listOf(KunPalette.PrimaryDeep, KunPalette.Primary, KunPalette.Cyan)))
+                        .padding(vertical = 28.dp, horizontal = 22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    Box(
+                        Modifier.size(152.dp).clip(CircleShape)
+                            .background(if (running) Color(0xFF2F8CFF) else Color.White.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.material3.Icon(
+                            painter = painterResource(R.drawable.ic_nav_broadcast),
+                            contentDescription = "بث شبكة",
+                            modifier = Modifier.size(86.dp),
+                            tint = Color.White,
+                        )
+                    }
+                    Text(
+                        if (running) "البث نشط" else "البث متوقف",
+                        color = Color.White,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    Text(
+                        if (running) "الجلسة تعمل عبر Shizuku" else "فعّل المتطلبات ثم اضغط Start",
+                        color = Color.White.copy(alpha = 0.86f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                    Text("جاهزية البث", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                    StatusRow("Wireless ADB", adbReady, if (adbReady) "متصل" else "غير متصل")
+                    StatusRow("Shizuku", shizukuReady, shizukuStatusLabel(shizukuStatus))
+                    StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "شغّل VPN أولًا")
+                    if (!adbReady) {
+                        AdbInfoNote("فعّل Wireless ADB أولًا من تبويب ADB. يبقى البث مقفلاً حتى تكون قناة الإدارة جاهزة.", warning = true)
+                        KUNSecondaryButton("فتح تبويب ADB", onGoToAdb)
+                    }
+                    if (!shizukuReady) {
+                        AdbInfoNote("ثبّت Shizuku وشغّله، ثم امنح Kun cloak صلاحية Shizuku. لا يتم تشغيل hotspot عادي خارج المسار المحمي.", warning = true)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            KUNSecondaryButton("فتح Shizuku", { ShizukuGate.openDownloadPage(context) }, Modifier.weight(1f))
+                            if (shizukuStatus is ShizukuStatus.PermissionRequired) {
+                                KUNSecondaryButton("منح الصلاحية", { ShizukuGate.requestPermission() }, Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            KUNPrimaryButton(
+                text = if (running) "إيقاف البث" else "Start",
+                onClick = {
+                    busy = true
+                    message = null
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            if (running) NetworkBroadcastController.stop() else NetworkBroadcastController.start()
+                        }
+                        result.fold(
+                            onSuccess = {
+                                running = !running
+                                message = if (running) "تم تشغيل جلسة بث الشبكة." else "تم إيقاف البث وإغلاق downstream."
+                            },
+                            onFailure = ::showFailure,
+                        )
+                        busy = false
+                    }
+                },
+                enabled = adbReady && shizukuReady && vpnReady,
+                loading = busy,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
+        }
+        message?.let { text ->
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                    Text(text, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusRow(label: String, ready: Boolean, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.size(10.dp).background(if (ready) KunPalette.Success else KunPalette.Warning, CircleShape))
+        Text(label, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+        Text(value, color = if (ready) KunPalette.Success else KunPalette.Warning, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+private fun shizukuStatusLabel(status: ShizukuStatus): String = when (status) {
+    ShizukuStatus.NotRunning -> "غير جاهز"
+    ShizukuStatus.PermissionRequired -> "تحتاج صلاحية"
+    is ShizukuStatus.Ready -> "جاهز"
+}

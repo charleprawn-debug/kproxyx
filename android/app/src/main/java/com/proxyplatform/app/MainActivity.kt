@@ -48,7 +48,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -128,20 +127,8 @@ internal data class WalletTransaction(val amount: Double, val description: Strin
 internal data class TopUpMethod(val code: String, val name: String, val currency: String, val network: String, val address: String, val minAmount: Double, val exchangeRate: Double, val instructions: String)
 internal data class TopUpRequest(val id: String, val methodCode: String, val amount: Double, val currency: String, val expectedUsd: Double, val reference: String, val status: String, val createdAt: String)
 internal data class FeatureAccess(val advanced: Boolean = false, val sim: Boolean = false, val vpn: Boolean = false, val mockLocation: Boolean = false)
-internal data class AppNotification(
-    val id: String,
-    val title: String,
-    val message: String,
-    val read: Boolean,
-    val createdAt: String,
-    val type: String = "",
-)
-internal data class SupportMessagesPage(
-    val messages: List<AppNotification>,
-    val unreadCount: Int,
-    val hasMore: Boolean,
-)
-internal enum class Screen { SUBSCRIPTIONS, PROXY, SIM, ADB, PROFILE, WALLET }
+internal data class AppNotification(val id: String, val title: String, val message: String, val read: Boolean, val createdAt: String)
+internal enum class Screen { SUBSCRIPTIONS, PROXY, BROADCAST, SIM, ADB, PROFILE, WALLET }
 
 private val SuccessGreen = KunPalette.Success
 private val SuccessGreenContainer = KunPalette.SuccessSoft
@@ -259,33 +246,10 @@ internal class ApiClient(context: Context) {
     }
     fun notifications(): List<AppNotification> {
         val result = request("/me/notifications").optJSONArray("data")?.let { rows ->
-            (0 until rows.length()).map { i -> rows.getJSONObject(i).let { AppNotification(it.getString("id"), it.optString("title"), it.optString("message"), it.optBoolean("is_read"), it.optString("created_at"), it.optString("notification_type")) } }
+            (0 until rows.length()).map { i -> rows.getJSONObject(i).let { AppNotification(it.getString("id"), it.optString("title"), it.optString("message"), it.optBoolean("is_read"), it.optString("created_at")) } }
         } ?: emptyList()
         showUnreadNotifications(result)
         return result
-    }
-    fun supportMessages(offset: Int, limit: Int = 50): SupportMessagesPage {
-        val safeOffset = offset.coerceIn(0, 1_000_000)
-        val safeLimit = limit.coerceIn(1, 100)
-        val body = request("/me/support-messages?offset=$safeOffset&limit=$safeLimit")
-        val rows = body.optJSONArray("data")
-        val messages = if (rows == null) emptyList() else (0 until rows.length()).map { index ->
-            rows.getJSONObject(index).let { item ->
-                AppNotification(
-                    id = item.getString("id"),
-                    title = item.optString("title"),
-                    message = item.optString("message"),
-                    read = item.optBoolean("is_read", false),
-                    createdAt = item.optString("created_at"),
-                    type = item.optString("notification_type"),
-                )
-            }
-        }
-        return SupportMessagesPage(
-            messages = messages,
-            unreadCount = body.optInt("unreadCount", 0).coerceAtLeast(0),
-            hasMore = body.optBoolean("hasMore", false),
-        )
     }
     private fun showUnreadNotifications(items: List<AppNotification>) {
         if (items.none { !it.read }) return
@@ -463,51 +427,8 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
     var activationError by mutableStateOf<String?>(null); private set
     var wirelessState by mutableStateOf(WirelessDebuggingManager.DebuggingState.NOT_PAIRED); private set
     var notifications by mutableStateOf<List<AppNotification>>(emptyList()); private set
-    var supportMessages by mutableStateOf<List<AppNotification>>(emptyList()); private set
-    var unreadSupportMessageCount by mutableStateOf(0); private set
-    var supportMessagesLoading by mutableStateOf(false); private set
-    var supportMessagesError by mutableStateOf<String?>(null); private set
-    var supportMessagesHasMore by mutableStateOf(false); private set
-    private val pendingNotificationReads = mutableSetOf<String>()
     fun loadNotifications() = viewModelScope.launch(Dispatchers.IO) { runCatching { apiClient.notifications() }.onSuccess { withContext(Dispatchers.Main) { notifications = it } } }
-    fun loadSupportMessages(reset: Boolean = false) {
-        if (supportMessagesLoading || (!reset && !supportMessagesHasMore)) return
-        val offset = if (reset) 0 else supportMessages.size
-        supportMessagesLoading = true
-        supportMessagesError = null
-        viewModelScope.launch(Dispatchers.IO) {
-            val result = runCatching { apiClient.supportMessages(offset) }
-            withContext(Dispatchers.Main) {
-                supportMessagesLoading = false
-                result.onSuccess { page ->
-                    supportMessages = if (offset == 0) page.messages else (supportMessages + page.messages).distinctBy { it.id }
-                    unreadSupportMessageCount = page.unreadCount
-                    supportMessagesHasMore = page.hasMore
-                }.onFailure { failure ->
-                    supportMessagesError = failure.message ?: "تعذر تحميل رسائل الدعم."
-                }
-            }
-        }
-    }
-    fun markNotificationRead(id: String) {
-        val known = notifications.firstOrNull { it.id == id } ?: supportMessages.firstOrNull { it.id == id }
-        if (known?.read == true || !pendingNotificationReads.add(id)) return
-        viewModelScope.launch(Dispatchers.IO) {
-            val result = runCatching { apiClient.markNotificationRead(id) }
-            withContext(Dispatchers.Main) {
-                pendingNotificationReads.remove(id)
-                if (result.isSuccess) {
-                    notifications = notifications.map { if (it.id == id) it.copy(read = true) else it }
-                    supportMessages = supportMessages.map { if (it.id == id) it.copy(read = true) else it }
-                    if (known?.type == "admin_broadcast") {
-                        unreadSupportMessageCount = (unreadSupportMessageCount - 1).coerceAtLeast(0)
-                    }
-                } else if (known?.type == "admin_broadcast") {
-                    supportMessagesError = result.exceptionOrNull()?.message ?: "تعذر حفظ حالة قراءة الرسالة."
-                }
-            }
-        }
-    }
+    fun markNotificationRead(id: String) = viewModelScope.launch(Dispatchers.IO) { runCatching { apiClient.markNotificationRead(id) }; withContext(Dispatchers.Main) { notifications = notifications.map { if (it.id == id) it.copy(read = true) else it } } }
 
     private var profileLoaded = false
     private var subscriptionsLoaded = false
@@ -526,7 +447,6 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
         loadPlansAndWallet(force = true)
         loadSubscriptions(force = true)
         loadNotifications()
-        loadSupportMessages(reset = true)
         if (profile != null) loadProfile(force = true)
         if (walletDetailsLoaded) loadWalletDetails(force = true)
     }
@@ -931,13 +851,6 @@ class MainActivity : ComponentActivity() {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var featureTab by remember { mutableStateOf("connection") }
-    var rootAvailable by remember { mutableStateOf(false) }
-    var blockWebRtcEnabled by remember {
-        mutableStateOf(
-            context.getSharedPreferences("advanced_connection_options", Context.MODE_PRIVATE)
-                .getBoolean("block_webrtc", false)
-        )
-    }
     val profileStore = remember(context) { ProxyProfileStore(context.applicationContext) }
     var savedProxies by remember { mutableStateOf(emptyList<SavedProxy>()) }
     var selectedSavedProxyId by remember { mutableStateOf<String?>(null) }
@@ -1178,24 +1091,7 @@ class MainActivity : ComponentActivity() {
         featureStatus = "تم إيقاف الموقع الوهمي."
     }
 
-    LaunchedEffect(mode, featureTab) {
-        if (mode == "advanced" && featureTab == "connection") {
-            rootAvailable = withContext(Dispatchers.IO) { RootWebRtcController.hasRoot() }
-            if (!rootAvailable && blockWebRtcEnabled) {
-                blockWebRtcEnabled = false
-                context.getSharedPreferences("advanced_connection_options", Context.MODE_PRIVATE)
-                    .edit().putBoolean("block_webrtc", false).apply()
-            }
-        }
-    }
-
     LaunchedEffect(Unit) {
-        if (!ProxyLocalService.isRunning(context) && RootWebRtcController.hasPendingRestore(context)) {
-            val firewallRestore = withContext(Dispatchers.IO) { RootWebRtcController.restore(context) }
-            if (firewallRestore.isFailure) {
-                error = "تعذرت استعادة قواعد حجب WebRTC السابقة: ${firewallRestore.exceptionOrNull()?.message}"
-            }
-        }
         if (!ProxyVpnService.isRunning(context) && !ProxyLocalService.isRunning(context)) {
             ProxyLocationController.recoverStaleFusedMockMode(context)
         }
@@ -1293,14 +1189,14 @@ class MainActivity : ComponentActivity() {
     }
 
     // ── Advanced mode: local system proxy (shared ADB configured separately) ─
-    fun launchAdvancedTunnel(allowUdp: Boolean, blockWebRtc: Boolean) {
+    fun launchAdvancedTunnel(allowUdp: Boolean) {
         error = null
         starting = true
         running = false
         AdvancedOperationLog.info(context, "========== بدء تشغيل البروكسي المتقدم ==========")
         AdvancedOperationLog.info(
             context,
-            "الخيارات: protocol=${protocol.uppercase()}, port=${port.toIntOrNull() ?: "invalid"}, authentication=$auth, blockWebRtc=$blockWebRtc؛ بيانات الاعتماد لا تُسجّل."
+            "الخيارات: protocol=${protocol.uppercase()}, port=${port.toIntOrNull() ?: "invalid"}, authentication=$auth؛ بيانات الاعتماد لا تُسجّل."
         )
         ProxyLocalService.clearLastError(context)
         runCatching {
@@ -1338,15 +1234,8 @@ class MainActivity : ComponentActivity() {
                     val expectedProxy = "127.0.0.1:${ProxyLocalService.localPort(context)}"
                     AdvancedOperationLog.info(context, "أصبح المنفذ المحلي جاهزًا؛ بدء ضبط بروكسي نظام Android.")
                     val proxyResult = AdvancedSystemProxy.apply(context, expectedProxy)
-                    val webRtcResult = if (proxyResult.isSuccess && blockWebRtc) {
-                        RootWebRtcController.apply(context)
-                    } else {
-                        Result.success(Unit)
-                    }
                     val result = if (proxyResult.isFailure) {
                         proxyResult
-                    } else if (webRtcResult.isFailure) {
-                        webRtcResult
                     } else {
                         Result.success(Unit)
                     }
@@ -1383,10 +1272,7 @@ class MainActivity : ComponentActivity() {
                     val proxyRestore = if (AdvancedSystemProxy.hasPendingRestore(context)) {
                         AdvancedSystemProxy.restore(context, "127.0.0.1:${ProxyLocalService.localPort(context)}")
                     } else Result.success(Unit)
-                    val baseRestore = if (languageRestore.isFailure) languageRestore else if (timezoneRestore.isFailure) timezoneRestore else proxyRestore
-                    if (baseRestore.isSuccess && RootWebRtcController.hasPendingRestore(context)) {
-                        RootWebRtcController.restore(context)
-                    } else baseRestore
+                    if (languageRestore.isFailure) languageRestore else if (timezoneRestore.isFailure) timezoneRestore else proxyRestore
                 }
                 if (restoreResult.isSuccess) {
                     AdvancedOperationLog.info(context, "اكتملت معالجة الاستعادة؛ إيقاف الخدمة المحلية.")
@@ -1418,11 +1304,7 @@ class MainActivity : ComponentActivity() {
             )
             return
         }
-        if (blockWebRtcEnabled && !rootAvailable) {
-            error = "يتطلب حجب WebRTC صلاحية الروت؛ لم يبدأ الاتصال."
-            return
-        }
-        launchAdvancedTunnel(allowUdp, blockWebRtcEnabled)
+        launchAdvancedTunnel(allowUdp)
     }
     fun stopAdvanced() {
         if (stopping) return
@@ -1435,18 +1317,15 @@ class MainActivity : ComponentActivity() {
             val restoreResult = if (languageRestore.isSuccess && timezoneRestore.isSuccess) {
                 AdvancedSystemProxy.restore(context, expectedProxy)
             } else if (languageRestore.isFailure) languageRestore else timezoneRestore
-            val completeRestore = if (restoreResult.isSuccess && RootWebRtcController.hasPendingRestore(context)) {
-                RootWebRtcController.restore(context)
-            } else restoreResult
             withContext(Dispatchers.Main) {
                 stopping = false
-                if (completeRestore.isSuccess) {
+                if (restoreResult.isSuccess) {
                     AdvancedOperationLog.output(context, "استُعيدت لغة الهاتف والمنطقة الزمنية والبروكسي؛ جارٍ إيقاف خدمة البروكسي المحلي.")
                     ProxyLocalService.stop(context)
                     running = false
                 } else {
                     AdvancedOperationLog.error(context, "تعذر إيقاف آمن: فشلت استعادة إعدادات البروكسي أو المنطقة الزمنية.")
-                    error = ProxyFailureMessages.advancedRestore(completeRestore.exceptionOrNull()?.message)
+                    error = ProxyFailureMessages.advancedRestore(restoreResult.exceptionOrNull()?.message)
                 }
             }
         }
@@ -1582,25 +1461,12 @@ class MainActivity : ComponentActivity() {
     }
 
     if (featureTab == "connection" && mode == "advanced" && !wirelessReady) {
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            AdbRequiredPanel(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                title = "البروكسي المتقدم",
-                description = "اتصل عبر صفحة ADB للمتابعة.",
-                onGoToAdb = onGoToAdb,
-            )
-            AdvancedWebRtcToggle(
-                rootAvailable = rootAvailable,
-                checked = blockWebRtcEnabled,
-                enabled = !starting && !checkingEndpoint && !stopping,
-                onCheckedChange = { enabled ->
-                    blockWebRtcEnabled = enabled
-                    context.getSharedPreferences("advanced_connection_options", Context.MODE_PRIVATE)
-                        .edit().putBoolean("block_webrtc", enabled).apply()
-                },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
+        AdbRequiredPanel(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            title = "البروكسي المتقدم",
+            description = "اتصل عبر صفحة ADB للمتابعة.",
+            onGoToAdb = onGoToAdb,
+        )
         return
     }
 
@@ -1647,19 +1513,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-        }
-
-        if (featureTab == "connection" && mode == "advanced") item {
-            AdvancedWebRtcToggle(
-                rootAvailable = rootAvailable,
-                checked = blockWebRtcEnabled,
-                enabled = !running && !starting && !checkingEndpoint && !stopping,
-                onCheckedChange = { enabled ->
-                    blockWebRtcEnabled = enabled
-                    context.getSharedPreferences("advanced_connection_options", Context.MODE_PRIVATE)
-                        .edit().putBoolean("block_webrtc", enabled).apply()
-                },
-            )
         }
 
         // ── Saved proxy profiles ─────────────────────────────────────────────────
@@ -1789,52 +1642,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    }
-}
-
-@Composable
-private fun AdvancedWebRtcToggle(
-    rootAvailable: Boolean,
-    checked: Boolean,
-    enabled: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val accent = if (rootAvailable) KunPalette.Success else KunPalette.Error
-    val container = if (rootAvailable) KunPalette.SuccessSoft else KunPalette.ErrorSoft
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
-        color = container,
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
-    ) {
-        Row(
-            Modifier.fillMaxWidth()
-                .clickable(enabled = rootAvailable && enabled) { onCheckedChange(!checked) }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("حجب WebRTC", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = accent)
-                Text(
-                    if (rootAvailable) "صلاحية الروت متاحة؛ سيُطبّق الحجب أثناء تشغيل الوضع المتقدم فقط."
-                    else "غير متاح — يتطلب صلاحية الروت، ولا يمكن تفعيل هذا الخيار دونها.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = accent,
-                )
-                Text(
-                    "يحظر UDP باستثناء DNS/53، ويمنع منافذ STUN/TURN الشائعة؛ قد تتأثر تطبيقات UDP، ولا يمكن ضمان منع TURN عبر HTTPS/443.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                enabled = rootAvailable && enabled,
-            )
-        }
     }
 }
 

@@ -6,5 +6,7 @@ License: Apache License, Version 2.0; see NRFR-LICENSE.txt.
 
 The country and carrier preset data and the CarrierConfig behavior in this
 application are adapted from NRFR. Labels and UI were adapted for this app.
-The Shizuku transport is not included: calls are made from an in-app Android
-Instrumentation process launched through the app's embedded Wireless ADB.
+Shizuku API/provider 13.1.5 are used by the optional Network Broadcast feature.
+Source: https://github.com/RikkaApps/Shizuku
+The feature requires the user-installed Shizuku service and does not bundle
+the Shizuku service itself.
