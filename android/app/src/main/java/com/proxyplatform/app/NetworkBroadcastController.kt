@@ -15,7 +15,7 @@ import kotlin.coroutines.suspendCoroutine
 internal object NetworkBroadcastController {
     private val args = Shizuku.UserServiceArgs(
         ComponentName(BuildConfig.APPLICATION_ID, BroadcastShellService::class.java.name),
-    ).daemon(true).tag("kuncloak-broadcast").version(1)
+    ).daemon(true).tag("kuncloak-broadcast").version(1).processNameSuffix("broadcast")
 
     private var remote: IBroadcastShellService? = null
     private var pending: Continuation<IBroadcastShellService>? = null
