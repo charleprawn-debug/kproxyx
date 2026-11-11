@@ -1,57 +1,58 @@
 package com.proxyplatform.app
 
-import java.io.ByteArrayOutputStream
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.IBinder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
 import rikka.shizuku.Shizuku
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
-/**
- * Keeps hotspot lifecycle behind Shizuku's shell identity. The UI never starts
- * a downstream before Shizuku is ready, so a normal app-UID hotspot cannot be
- * mistaken for the protected broadcast path.
- */
+/** Owns the shell-privileged Shizuku UserService used by the broadcast tab. */
 internal object NetworkBroadcastController {
-    private const val COMMAND_TIMEOUT_SECONDS = 12L
+    private val args = Shizuku.UserServiceArgs(
+        ComponentName(BuildConfig.APPLICATION_ID, BroadcastShellService::class.java.name),
+    ).daemon(true).tag("kuncloak-broadcast").version(1)
 
-    fun start(): Result<String> = runCommand(
-        listOf(
-            arrayOf("cmd", "tethering", "start", "wifi"),
-            arrayOf("cmd", "connectivity", "tether", "start", "wifi"),
-        ),
-    )
-
-    fun stop(): Result<String> = runCommand(
-        listOf(
-            arrayOf("cmd", "tethering", "stop", "wifi"),
-            arrayOf("cmd", "connectivity", "tether", "stop", "wifi"),
-        ),
-    )
-
-    fun status(): Result<String> = runCommand(
-        listOf(arrayOf("cmd", "tethering", "get-tethered-ifaces")),
-    )
-
-    private fun runCommand(candidates: List<Array<String>>): Result<String> {
-        val failures = mutableListOf<String>()
-        for (command in candidates) {
-            val result = runCatching {
-                check(ShizukuGate.isReady()) { "Shizuku is not ready" }
-                val process = Shizuku.newProcess(command, null, null)
-                val output = ByteArrayOutputStream()
-                process.inputStream.use { input -> input.copyTo(output) }
-                process.errorStream.use { input -> input.copyTo(output) }
-                check(process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                    "command timed out: ${command.joinToString(" ")}" 
-                }
-                val text = output.toString(StandardCharsets.UTF_8.name()).trim()
-                check(process.exitValue() == 0) {
-                    text.ifBlank { "shell command exited with ${process.exitValue()}" }
-                }
-                text
-            }
-            if (result.isSuccess) return result
-            failures += result.exceptionOrNull()?.message ?: "unknown shell failure"
+    private var remote: IBroadcastShellService? = null
+    private var pending: kotlinx.coroutines.CancellableContinuation<IBroadcastShellService>? = null
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val service = binder?.let { IBroadcastShellService.Stub.asInterface(it) }
+            if (service == null) pending?.resumeWithException(IllegalStateException("Shizuku UserService returned no binder"))
+            else { remote = service; pending?.resume(service) }
+            pending = null
         }
-        return Result.failure(IllegalStateException(failures.joinToString("; ")))
+        override fun onServiceDisconnected(name: ComponentName?) {
+            remote = null
+        }
+    }
+
+    suspend fun start(): Result<String> = call { it.startBroadcast() }
+    suspend fun stop(): Result<String> = call { it.stopBroadcast() }
+    suspend fun status(): Result<String> = call { it.getStatus() }
+
+    private suspend fun call(operation: (IBroadcastShellService) -> String): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            check(ShizukuGate.isReady()) { "Shizuku is not ready" }
+            val service = remote?.takeIf { it.asBinder().pingBinder() } ?: bind()
+            operation(service)
+        }
+    }
+
+    private suspend fun bind(): IBroadcastShellService = suspendCancellableCoroutine { continuation ->
+        pending = continuation
+        try {
+            Shizuku.bindUserService(args, connection)
+        } catch (failure: Throwable) {
+            pending = null
+            continuation.resumeWithException(failure)
+        }
+        continuation.invokeOnCancellation {
+            pending = null
+            runCatching { Shizuku.unbindUserService(args, connection, false) }
+        }
     }
 }

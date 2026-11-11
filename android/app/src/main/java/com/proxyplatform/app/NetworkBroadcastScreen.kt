@@ -11,15 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,7 +33,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -137,11 +133,11 @@ internal fun NetworkBroadcastScreen(
                     StatusRow("Shizuku", shizukuReady, shizukuStatusLabel(shizukuStatus))
                     StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "شغّل VPN أولًا")
                     if (!adbReady) {
-                        AdbInfoNote("فعّل Wireless ADB أولًا من تبويب ADB. يبقى البث مقفلاً حتى تكون قناة الإدارة جاهزة.", warning = true)
+                        BroadcastInfoNote("فعّل Wireless ADB أولًا من تبويب ADB. يبقى البث مقفلاً حتى تكون قناة الإدارة جاهزة.", warning = true)
                         KUNSecondaryButton("فتح تبويب ADB", onGoToAdb)
                     }
                     if (!shizukuReady) {
-                        AdbInfoNote("ثبّت Shizuku وشغّله، ثم امنح Kun cloak صلاحية Shizuku. لا يتم تشغيل hotspot عادي خارج المسار المحمي.", warning = true)
+                        BroadcastInfoNote("ثبّت Shizuku وشغّله، ثم امنح Kun cloak صلاحية Shizuku. لا يتم تشغيل hotspot عادي خارج المسار المحمي.", warning = true)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             KUNSecondaryButton("فتح Shizuku", { ShizukuGate.openDownloadPage(context) }, Modifier.weight(1f))
                             if (shizukuStatus is ShizukuStatus.PermissionRequired) {
@@ -200,4 +196,18 @@ private fun shizukuStatusLabel(status: ShizukuStatus): String = when (status) {
     ShizukuStatus.NotRunning -> "غير جاهز"
     ShizukuStatus.PermissionRequired -> "تحتاج صلاحية"
     is ShizukuStatus.Ready -> "جاهز"
+}
+
+@Composable
+private fun BroadcastInfoNote(text: String, warning: Boolean) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (warning) KunPalette.WarningSoft else KunPalette.SurfaceSoft)
+            .padding(13.dp),
+        color = if (warning) KunPalette.Warning else MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.bodySmall,
+    )
 }
