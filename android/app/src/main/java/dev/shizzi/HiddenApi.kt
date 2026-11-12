@@ -2,7 +2,6 @@ package dev.shizzi
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.annotation.SuppressLint
 import android.net.ConnectivityManager
 import android.net.LinkAddress
 import android.net.LinkProperties
