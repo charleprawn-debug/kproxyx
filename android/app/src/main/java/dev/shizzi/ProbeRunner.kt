@@ -191,7 +191,7 @@ class ProbeRunner(private val context: Context) {
         }
 
         val request = android.net.NetworkRequest.Builder()
-            .clearCapabilities()
+            .clearCapabilitiesCompat()
             .build()
 
         return runCatching {

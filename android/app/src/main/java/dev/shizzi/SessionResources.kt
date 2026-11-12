@@ -43,7 +43,7 @@ class SessionResources(
 
     private fun requestKeepAlive() {
         val request = NetworkRequest.Builder()
-            .clearCapabilities()
+            .clearCapabilitiesCompat()
             .addTransportType(resolveTransportTest())
             .build()
 
