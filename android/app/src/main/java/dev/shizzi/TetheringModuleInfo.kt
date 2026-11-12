@@ -63,11 +63,7 @@ class TetheringModuleInfo(private val context: Context) {
         } else {
             context.packageManager.getPackageInfo(packageName, flags)
         }
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            info.longVersionCode
-        } else {
-            info.versionCode.toLong()
-        }
+        return info.longVersionCode
     }
 
     private companion object {

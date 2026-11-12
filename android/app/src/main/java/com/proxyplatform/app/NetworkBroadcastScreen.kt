@@ -37,6 +37,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 @Composable
 internal fun NetworkBroadcastScreen(
@@ -153,9 +154,21 @@ internal fun NetworkBroadcastScreen(
                             if (running) NetworkBroadcastController.stop() else NetworkBroadcastController.start()
                         }
                         result.fold(
-                            onSuccess = {
-                                running = !running
-                                message = if (running) "تم تشغيل جلسة بث الشبكة." else "تم إيقاف البث وإغلاق downstream."
+                            onSuccess = { raw ->
+                                val state = runCatching { JSONObject(raw).optString("state") }.getOrDefault("")
+                                val detail = runCatching { JSONObject(raw).optString("detail") }
+                                    .getOrDefault(raw)
+                                    .ifBlank { raw }
+                                if (state == "ACTIVE") {
+                                    running = true
+                                    message = "تم تشغيل جلسة Shizze الأصلية وربط downstream."
+                                } else if (!running) {
+                                    running = false
+                                    message = "لم تبدأ جلسة Shizze: $detail"
+                                } else {
+                                    running = false
+                                    message = "تم إيقاف البث: $detail"
+                                }
                             },
                             onFailure = ::showFailure,
                         )
