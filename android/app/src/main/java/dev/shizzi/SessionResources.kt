@@ -90,7 +90,6 @@ class SessionResources(
             synchronized(this) {
                 if (loaded) return
                 System.loadLibrary("gojni")
-                System.loadLibrary("datapath")
                 loaded = true
             }
         }
