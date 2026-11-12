@@ -50,7 +50,6 @@ internal fun NetworkBroadcastScreen(
     var running by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    val adbReady = vm.wirelessState == WirelessDebuggingManager.DebuggingState.READY
     val shizukuReady = shizukuStatus is ShizukuStatus.Ready
     val vpnReady = ProxyVpnService.isRunning(context)
 
@@ -129,15 +128,10 @@ internal fun NetworkBroadcastScreen(
             ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("جاهزية البث", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                    StatusRow("Wireless ADB", adbReady, if (adbReady) "متصل" else "غير متصل")
                     StatusRow("Shizuku", shizukuReady, shizukuStatusLabel(shizukuStatus))
                     StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "شغّل VPN أولًا")
-                    if (!adbReady) {
-                        BroadcastInfoNote("فعّل Wireless ADB أولًا من تبويب ADB. يبقى البث مقفلاً حتى تكون قناة الإدارة جاهزة.", warning = true)
-                        KUNSecondaryButton("فتح تبويب ADB", onGoToAdb)
-                    }
                     if (!shizukuReady) {
-                        BroadcastInfoNote("ثبّت Shizuku وشغّله، ثم امنح Kun cloak صلاحية Shizuku. لا يتم تشغيل hotspot عادي خارج المسار المحمي.", warning = true)
+                        BroadcastInfoNote("شغّل Shizuku عبر USB أو Root ثم امنح Kun cloak الصلاحية. لا يحتاج بث الشبكة إلى Wireless ADB.", warning = true)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             KUNSecondaryButton("فتح Shizuku", { ShizukuGate.openDownloadPage(context) }, Modifier.weight(1f))
                             if (shizukuStatus is ShizukuStatus.PermissionRequired) {
@@ -168,7 +162,7 @@ internal fun NetworkBroadcastScreen(
                         busy = false
                     }
                 },
-                enabled = adbReady && shizukuReady && vpnReady,
+                enabled = shizukuReady && vpnReady,
                 loading = busy,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
