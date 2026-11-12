@@ -78,7 +78,7 @@ internal fun NetworkBroadcastScreen(
             PageHeading(
                 eyebrow = "Kun cloak",
                 title = "بث شبكة",
-                subtitle = "شارك اتصال البروكسي مع جهاز آخر عبر جلسة Shizuku المحمية.",
+                subtitle = "اضغط Start لتشغيل نقطة الاتصال وربطها بالبروكسي تلقائيًا عبر جلسة Shizuku المحمية.",
             )
         }
         item {
@@ -113,7 +113,7 @@ internal fun NetworkBroadcastScreen(
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
-                        if (running) "الجلسة تعمل عبر Shizuku" else "فعّل المتطلبات ثم اضغط Start",
+                        if (running) "نقطة الاتصال مربوطة بالبروكسي عبر Shizuku" else "فعّل المتطلبات ثم اضغط Start",
                         color = Color.White.copy(alpha = 0.86f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
