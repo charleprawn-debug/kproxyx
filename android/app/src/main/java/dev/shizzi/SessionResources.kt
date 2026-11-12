@@ -15,7 +15,6 @@ class SessionResources(
 
     private var tun: TunHandle? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
-    private var datapathFileDescriptor: ParcelFileDescriptor? = null
     private var network: Network? = null
     private var datapathSession: DatapathSession? = null
     private var keepAliveCallback: ConnectivityManager.NetworkCallback? = null
@@ -66,47 +65,31 @@ class SessionResources(
         val descriptor = fileDescriptor
             ?: error("startDatapath: no TUN fd; acquire() must succeed first")
 
-        val originalResult = runCatching {
+        datapathSession = runCatching {
+            DatapathNativeLoader.ensureLoaded()
             Datapath.start(descriptor.fd.toLong(), mtu.toLong())
-        }
-        val originalSession = originalResult.getOrNull()
-        if (originalSession != null) {
-            datapathSession = originalSession
-            return
-        }
-        val originalFailure = originalResult.exceptionOrNull()
-
-        val fallbackDescriptor = runCatching {
-            ParcelFileDescriptor.dup(descriptor.fileDescriptor)
-        }.getOrElse { duplicateFailure ->
+        }.getOrElse { failure ->
             throw IllegalStateException(
-                "startDatapath: userspace stack failed to attach to fd ${descriptor.fd} " +
-                    "(mtu=$mtu), and duplicating the descriptor also failed: " +
-                    (duplicateFailure.message ?: duplicateFailure.javaClass.simpleName),
-                duplicateFailure,
+                "startDatapath: userspace stack failed to attach to fd " +
+                    "${descriptor.fd} (mtu=$mtu): " +
+                    (failure.message ?: failure.javaClass.simpleName),
+                failure,
             )
         }
+    }
 
-        val fallbackFd = fallbackDescriptor.fd
-        val fallback = runCatching {
-            Datapath.start(fallbackFd.toLong(), mtu.toLong())
+    private object DatapathNativeLoader {
+        @Volatile
+        private var loaded = false
+
+        fun ensureLoaded() {
+            if (loaded) return
+            synchronized(this) {
+                if (loaded) return
+                System.loadLibrary("gojni")
+                loaded = true
+            }
         }
-        fallback.fold(
-            onSuccess = { session ->
-                datapathFileDescriptor = fallbackDescriptor
-                datapathSession = session
-            },
-            onFailure = { fallbackFailure ->
-                runCatching { fallbackDescriptor.close() }
-                throw IllegalStateException(
-                    "startDatapath: userspace stack failed to attach to fd ${descriptor.fd} " +
-                        "and duplicated fd $fallbackFd (mtu=$mtu): " +
-                        "original=${originalFailure?.message ?: originalFailure?.javaClass?.simpleName}; " +
-                        (fallbackFailure.message ?: fallbackFailure.javaClass.simpleName),
-                    fallbackFailure,
-                )
-            },
-        )
     }
 
     fun bindDatapathTo(handle: Long) {
@@ -145,12 +128,6 @@ class SessionResources(
                 .onFailure { problems += "datapath.stop: ${it.message}" }
         }
         datapathSession = null
-
-        datapathFileDescriptor?.let { descriptor ->
-            runCatching { descriptor.close() }
-                .onFailure { problems += "close(datapath fd): ${it.message}" }
-        }
-        datapathFileDescriptor = null
 
         network?.let { acquired ->
             runCatching { testNetworkApi.teardownTestNetwork(acquired) }
