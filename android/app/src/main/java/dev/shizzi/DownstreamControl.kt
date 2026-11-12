@@ -1,6 +1,7 @@
 package dev.shizzi
 
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.CountDownLatch
@@ -42,7 +43,8 @@ class DownstreamControl(private val context: Context) {
         get() = context.getSystemService("tethering")
             ?: error("tethering service unavailable")
 
-    val opPackageName: String get() = context.opPackageName
+    val opPackageName: String
+        get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) context.opPackageName else context.packageName
 
     private val managerClass: Class<*> get() = Class.forName("android.net.TetheringManager")
 
