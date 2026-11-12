@@ -16,7 +16,6 @@ class SessionResources(
 
     private var tun: TunHandle? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
-    private var datapathFileDescriptor: ParcelFileDescriptor? = null
     private var network: Network? = null
     private var datapathSession: DatapathSession? = null
     private var keepAliveCallback: ConnectivityManager.NetworkCallback? = null
@@ -68,15 +67,11 @@ class SessionResources(
         val descriptor = fileDescriptor
             ?: error("startDatapath: no TUN fd; acquire() must succeed first")
 
-        val datapathDescriptor = ParcelFileDescriptor.dup(descriptor.fileDescriptor)
-        datapathFileDescriptor = datapathDescriptor
-        datapathSession = runCatching { Datapath.start(datapathDescriptor.fd.toLong(), mtu.toLong()) }
+        datapathSession = runCatching { Datapath.start(descriptor.fd.toLong(), mtu.toLong()) }
             .getOrElse { failure ->
-                runCatching { datapathDescriptor.close() }
-                datapathFileDescriptor = null
                 throw IllegalStateException(
                     "startDatapath: userspace stack failed to attach to fd " +
-                        "${datapathDescriptor.fd} (original=${descriptor.fd}, mtu=$mtu): " +
+                        "${descriptor.fd} (mtu=$mtu): " +
                         (failure.message ?: failure.javaClass.simpleName),
                     failure,
                 )
@@ -119,12 +114,6 @@ class SessionResources(
                 .onFailure { problems += "datapath.stop: ${it.message}" }
         }
         datapathSession = null
-
-        datapathFileDescriptor?.let { descriptor ->
-            runCatching { descriptor.close() }
-                .onFailure { problems += "close(datapath fd): ${it.message}" }
-        }
-        datapathFileDescriptor = null
 
         network?.let { acquired ->
             runCatching { testNetworkApi.teardownTestNetwork(acquired) }
