@@ -2,6 +2,7 @@ package dev.shizzi
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.annotation.SuppressLint
 import android.net.ConnectivityManager
 import android.net.LinkAddress
 import android.net.LinkProperties
@@ -225,6 +226,7 @@ class TestNetworkApi(private val context: Context) {
         method.invoke(instance, argument)
     }.getOrNull()
 
+    @SuppressLint("NewApi")
     fun setupTestNetwork(interfaceName: String, dnsServers: List<InetAddress>, binder: IBinder) {
         val instance = manager ?: error("setupTestNetwork: test_network service unavailable")
         val owner = managerClass ?: error("setupTestNetwork: TestNetworkManager class absent")
