@@ -67,7 +67,10 @@ class SessionResources(
         val descriptor = fileDescriptor
             ?: error("startDatapath: no TUN fd; acquire() must succeed first")
 
-        datapathSession = runCatching { Datapath.start(descriptor.fd.toLong(), mtu.toLong()) }
+        datapathSession = runCatching {
+            DatapathNativeLoader.ensureLoaded()
+            Datapath.start(descriptor.fd.toLong(), mtu.toLong())
+        }
             .getOrElse { failure ->
                 throw IllegalStateException(
                     "startDatapath: userspace stack failed to attach to fd " +
@@ -76,6 +79,21 @@ class SessionResources(
                     failure,
                 )
             }
+    }
+
+    private object DatapathNativeLoader {
+        @Volatile
+        private var loaded = false
+
+        fun ensureLoaded() {
+            if (loaded) return
+            synchronized(this) {
+                if (loaded) return
+                System.loadLibrary("gojni")
+                System.loadLibrary("datapath")
+                loaded = true
+            }
+        }
     }
 
     fun bindDatapathTo(handle: Long) {
