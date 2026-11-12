@@ -21,7 +21,9 @@ val gomobileBind by tasks.registering(Exec::class) {
         check(gomobile.exists()) { "gomobile is required to build the embedded shizzi datapath" }
         outputAar.get().asFile.parentFile.mkdirs()
     }
-    commandLine(File(goBin, "gomobile").absolutePath, "bind", "-target=android/arm64", "-androidapi", "26", "-o", outputAar.get().asFile.absolutePath, ".")
+    // Keep the gomobile Android API floor aligned with upstream Shizze. The
+    // app's minSdk remains independent; this controls the native AAR build.
+    commandLine(File(goBin, "gomobile").absolutePath, "bind", "-target=android/arm64", "-androidapi", "24", "-o", outputAar.get().asFile.absolutePath, ".")
     doLast {
         val process = ProcessBuilder(
             "python3",
