@@ -14,13 +14,11 @@ internal object NetworkBroadcastController {
     private const val LOG_KEY = "events"
     private const val MAX_LOG_CHARS = 60_000
 
-    private var client = TetherClient()
+    private val client = TetherClient()
 
     suspend fun start(context: Context): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            appendLog(context, "START requested; Shizuku binding reset")
-            client.unbindAndStopDaemon()
-            client = TetherClient()
+            appendLog(context, "START requested; using Shizzi UserService lifecycle")
             appendLog(context, "START binding UserService (vpnMode=AUTO, usbTethering=NEVER)")
             val raw = client.start(
                 logging = true,
@@ -29,7 +27,10 @@ internal object NetworkBroadcastController {
             )
             appendResult(context, "START", raw)
             raw
-        }.onFailure { failure -> appendFailure(context, "START", failure) }
+        }.onFailure {
+            appendFailure(context, "START", it)
+            client.unbindAndStopDaemon()
+        }
     }
 
     suspend fun stop(context: Context): Result<String> = withContext(Dispatchers.IO) {

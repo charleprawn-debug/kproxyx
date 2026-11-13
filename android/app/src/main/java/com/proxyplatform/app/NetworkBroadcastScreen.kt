@@ -60,9 +60,11 @@ internal fun NetworkBroadcastScreen(
     val vpnReady = ProxyVpnService.isRunning(context)
 
     LaunchedEffect(Unit) {
+        var checkedOnce = false
         while (true) {
             shizukuStatus = ShizukuGate.status()
-            if (shizukuStatus is ShizukuStatus.Ready) {
+            if (!busy && shizukuStatus is ShizukuStatus.Ready && (!checkedOnce || running)) {
+                checkedOnce = true
                 val liveResult = withContext(Dispatchers.IO) { NetworkBroadcastController.status(context) }
                 liveResult.onSuccess { raw ->
                     val parsed = runCatching { JSONObject(raw) }.getOrNull()
