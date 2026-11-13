@@ -1,5 +1,6 @@
 package com.proxyplatform.app
 
+import android.os.DeadObjectException
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,11 +82,17 @@ internal fun NetworkBroadcastScreen(
     }
 
     fun showFailure(failure: Throwable?) {
+        val remoteServiceDied = generateSequence(failure) { it.cause }
+            .any { it is DeadObjectException }
         val detail = generateSequence(failure) { it.cause }
             .mapNotNull { cause -> cause.message?.takeIf { it.isNotBlank() } }
             .firstOrNull()
-        message = detail
-            ?: "تعذر تشغيل جلسة بث الشبكة. تحقق من Shizuku وADB ثم أعد المحاولة."
+        message = when {
+            remoteServiceDied ->
+                "توقفت عملية خدمة Shizuku أثناء بدء البث. أُعيد ضبط الربط؛ أعد المحاولة، وإذا تكرر الخطأ أرسل سجل Shizuku من الجهاز."
+            detail != null -> detail
+            else -> "تعذر تشغيل جلسة بث الشبكة. تحقق من Shizuku وADB ثم أعد المحاولة."
+        }
     }
 
     LazyColumn(
