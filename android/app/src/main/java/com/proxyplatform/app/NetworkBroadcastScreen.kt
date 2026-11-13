@@ -30,8 +30,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -46,21 +49,31 @@ internal fun NetworkBroadcastScreen(
     onGoToAdb: () -> Unit,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var shizukuStatus by remember { mutableStateOf(ShizukuGate.status()) }
     var running by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var logText by remember { mutableStateOf(NetworkBroadcastController.logs(context)) }
     val shizukuReady = shizukuStatus is ShizukuStatus.Ready
     val vpnReady = ProxyVpnService.isRunning(context)
 
     LaunchedEffect(Unit) {
         while (true) {
             shizukuStatus = ShizukuGate.status()
-            if (running && shizukuReady) {
-                val live = withContext(Dispatchers.IO) { NetworkBroadcastController.status().getOrNull() }
-                if (live.isNullOrBlank()) running = false
+            if (shizukuStatus is ShizukuStatus.Ready) {
+                val liveResult = withContext(Dispatchers.IO) { NetworkBroadcastController.status(context) }
+                liveResult.onSuccess { raw ->
+                    val parsed = runCatching { JSONObject(raw) }.getOrNull()
+                    val state = parsed?.optString("state").orEmpty()
+                    val detail = parsed?.optString("detail").orEmpty()
+                    if (state == "ACTIVE") running = true
+                    else if (state == "READY" || state == "ERROR") running = false
+                    if (state == "ERROR" && detail.isNotBlank()) message = detail
+                }
             }
+            logText = NetworkBroadcastController.logs(context)
             delay(2_500)
         }
     }
@@ -154,7 +167,7 @@ internal fun NetworkBroadcastScreen(
                     message = null
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
-                            if (running) NetworkBroadcastController.stop() else NetworkBroadcastController.start()
+                            if (running) NetworkBroadcastController.stop(context) else NetworkBroadcastController.start(context)
                         }
                         result.fold(
                             onSuccess = { raw ->
@@ -176,6 +189,7 @@ internal fun NetworkBroadcastScreen(
                             onFailure = ::showFailure,
                         )
                         busy = false
+                        logText = NetworkBroadcastController.logs(context)
                     }
                 },
                 enabled = shizukuReady,
@@ -187,6 +201,42 @@ internal fun NetworkBroadcastScreen(
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                     Text(text, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+            }
+        }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF101820)),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "سجل البث والتشخيص",
+                            modifier = Modifier.weight(1f),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        KUNSecondaryButton(
+                            "نسخ",
+                            { clipboard.setText(AnnotatedString(logText.ifBlank { "لا يوجد سجل بعد" })) },
+                            Modifier,
+                        )
+                        KUNSecondaryButton(
+                            "مسح",
+                            {
+                                NetworkBroadcastController.clearLogs(context)
+                                logText = ""
+                            },
+                            Modifier,
+                        )
+                    }
+                    Text(
+                        logText.ifBlank { "لا يوجد سجل بعد. اضغط Start لتسجيل كل مراحل الاتصال." },
+                        color = Color(0xFFB9E7C5),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    )
                 }
             }
         }
