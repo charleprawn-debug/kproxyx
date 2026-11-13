@@ -160,9 +160,25 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
             }
         }
 
-        // Exclude our own app from the tunnel so the app's own connection to
-        // the proxy server (and to the API) never loops back through the TUN.
-        runCatching { builder.addDisallowedApplication(packageName) }
+        // Keep the application control plane outside this full-tunnel VPN.
+        // Shizuku starts TetherService under the shell UID. If shell traffic
+        // enters this TUN, starting the tether changes the network underneath
+        // the UserService and Android can kill its Binder (DeadObjectException).
+        // Downstream tethered clients are unaffected by these exclusions.
+        listOf(packageName, "com.android.shell", "moe.shizuku.privileged.api")
+            .distinct()
+            .forEach { bypassPackage ->
+                runCatching { builder.addDisallowedApplication(bypassPackage) }
+                    .onSuccess {
+                        AdvancedOperationLog.info(this, "VPN bypassed control package: $bypassPackage")
+                    }
+                    .onFailure {
+                        AdvancedOperationLog.info(
+                            this,
+                            "VPN control package not bypassed: $bypassPackage (${it.javaClass.simpleName})",
+                        )
+                    }
+            }
 
         val pfd = builder.establish()
             ?: error("VPN permission is not granted. Call VpnService.prepare() first.")
