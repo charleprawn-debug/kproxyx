@@ -19,7 +19,11 @@ internal object NetworkBroadcastController {
     }
 
     suspend fun stop(): Result<String> = withContext(Dispatchers.IO) {
-        runCatching { client.stop() }
+        runCatching {
+            val result = runCatching { client.stop() }
+            client.unbindAndStopDaemon()
+            result.getOrThrow()
+        }
     }
 
     suspend fun status(): Result<String> = withContext(Dispatchers.IO) {
