@@ -114,7 +114,7 @@ internal fun NetworkBroadcastScreen(
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
-                        if (running) "نقطة الاتصال مربوطة بالبروكسي عبر Shizuku" else "فعّل المتطلبات ثم اضغط Start",
+                        if (running) "نقطة الاتصال مربوطة بالبروكسي عبر Shizuku" else "فعّل Shizuku ثم اضغط Start",
                         color = Color.White.copy(alpha = 0.86f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -130,7 +130,7 @@ internal fun NetworkBroadcastScreen(
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("جاهزية البث", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                     StatusRow("Shizuku", shizukuReady, shizukuStatusLabel(shizukuStatus))
-                    StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "شغّل VPN أولًا")
+                    StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "اختياري")
                     if (!shizukuReady) {
                         BroadcastInfoNote("شغّل Shizuku عبر USB أو Root ثم امنح Kun cloak الصلاحية. لا يحتاج بث الشبكة إلى Wireless ADB.", warning = true)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -175,7 +175,7 @@ internal fun NetworkBroadcastScreen(
                         busy = false
                     }
                 },
-                enabled = shizukuReady && vpnReady,
+                enabled = shizukuReady,
                 loading = busy,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
