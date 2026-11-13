@@ -9,8 +9,10 @@ internal const val UNBOUND = 0L
 internal data class VpnCandidate(val handle: Long, val isVpn: Boolean, val isActive: Boolean)
 
 internal fun selectVpnHandle(candidates: List<VpnCandidate>): Long {
-    candidates.firstOrNull { it.isActive && it.isVpn }?.let { return it.handle }
-    return candidates.firstOrNull { it.isVpn }?.handle ?: UNBOUND
+    val active = candidates.firstOrNull { it.isActive } ?: return UNBOUND
+    if (!active.isVpn) return UNBOUND
+
+    return active.handle
 }
 
 class ConnectivityVpnLocator(

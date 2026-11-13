@@ -12,7 +12,7 @@ internal object NetworkBroadcastController {
         runCatching {
             client.start(
                 logging = true,
-                vpnMode = VpnMode.ALWAYS,
+                vpnMode = VpnMode.AUTO,
                 usbTethering = UsbTethering.NEVER,
             )
         }
