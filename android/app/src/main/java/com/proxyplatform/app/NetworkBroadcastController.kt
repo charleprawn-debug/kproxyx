@@ -39,11 +39,28 @@ internal object NetworkBroadcastController {
 
     suspend fun start(context: Context): Result<String> = execute {
         runCatching {
+            // With our own VpnService active, the Shizuku UserService runs as
+            // shell and Android already routes shell sockets through that VPN.
+            // Explicitly binding the embedded Shizzi datapath to the same VPN
+            // network creates a nested self-binding path on some Android builds;
+            // the remote UserService then exits and the client only sees
+            // DeadObjectException. NEVER here means "do not call
+            // android_setsocknetwork"; it does not exclude shell from our VPN.
+            // For a third-party VPN, retain Shizzi's normal AUTO behavior.
+            val vpnMode = if (ProxyVpnService.isRunning(context)) {
+                VpnMode.NEVER
+            } else {
+                VpnMode.AUTO
+            }
             appendLog(context, "START requested; using Shizzi UserService lifecycle")
-            appendLog(context, "START binding UserService (vpnMode=AUTO, usbTethering=NEVER)")
+            appendLog(
+                context,
+                "START binding UserService (vpnMode=${vpnMode.name}, usbTethering=NEVER, " +
+                    "appVpn=${ProxyVpnService.isRunning(context)})",
+            )
             val raw = client.start(
                 logging = true,
-                vpnMode = VpnMode.AUTO,
+                vpnMode = vpnMode,
                 usbTethering = UsbTethering.NEVER,
             )
             appendResult(context, "START", raw)
