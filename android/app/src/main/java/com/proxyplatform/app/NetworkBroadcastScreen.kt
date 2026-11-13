@@ -66,7 +66,10 @@ internal fun NetworkBroadcastScreen(
     }
 
     fun showFailure(failure: Throwable?) {
-        message = failure?.message?.takeIf { it.isNotBlank() }
+        val detail = generateSequence(failure) { it.cause }
+            .mapNotNull { cause -> cause.message?.takeIf { it.isNotBlank() } }
+            .firstOrNull()
+        message = detail
             ?: "تعذر تشغيل جلسة بث الشبكة. تحقق من Shizuku وADB ثم أعد المحاولة."
     }
 

@@ -7,9 +7,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 /** Controls the embedded shizzi session instead of issuing a plain hotspot command. */
 internal object NetworkBroadcastController {
-    private val client = TetherClient()
+    private var client = TetherClient()
     suspend fun start(): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
+            client.unbindAndStopDaemon()
+            client = TetherClient()
             client.start(
                 logging = true,
                 vpnMode = VpnMode.AUTO,
