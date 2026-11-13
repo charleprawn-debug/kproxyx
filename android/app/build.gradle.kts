@@ -5,6 +5,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+fun sourceFingerprint(projectDir: File): Int {
+    val sources = File(projectDir, "src/main/java")
+    if (!sources.isDirectory) return 0
+
+    return sources.walkTopDown()
+        .filter { it.isFile && it.extension == "kt" }
+        .sortedBy { it.path }
+        .fold(7) { hash, file -> hash * 31 + file.readText().hashCode() }
+}
+
 val gomobileBind by tasks.registering(Exec::class) {
     val goModule = rootProject.layout.projectDirectory.dir("datapath")
     val outputAar = layout.buildDirectory.file("gomobile/datapath.aar")
@@ -50,6 +60,11 @@ android {
             "String",
             "API_BASE_URL",
             "\"${providers.gradleProperty("API_BASE_URL").orElse("https://api.kun.publicvm.com:10059/api/v1").get()}\"",
+        )
+        buildConfigField(
+            "int",
+            "SHIZUKU_SERVICE_BUILD_ID",
+            "${sourceFingerprint(projectDir)}",
         )
         ndk { abiFilters += "arm64-v8a" }
     }
