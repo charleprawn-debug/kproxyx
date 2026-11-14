@@ -60,14 +60,26 @@ internal fun NetworkBroadcastScreen(
     var terminalText by remember { mutableStateOf("") }
     val clipboardManager = LocalClipboardManager.current
     val adbReady = adbState == WirelessDebuggingManager.DebuggingState.READY
-    val vpnReady = ProxyVpnService.isRunning(context)
+    var vpnReady by remember { mutableStateOf(ProxyVpnService.isRunning(context)) }
 
     LaunchedEffect(Unit) {
         var checkedOnce = false
         while (true) {
-            adbState = WirelessDebuggingManager.checkState(context)
+            val currentAdbState = withContext(Dispatchers.IO) {
+                WirelessDebuggingManager.checkState(context)
+            }
+            adbState = currentAdbState
+            vpnReady = withContext(Dispatchers.IO) {
+                ProxyVpnService.isRunning(context)
+            }
             terminalText = withContext(Dispatchers.IO) { NetworkBroadcastController.diagnostics(context) }
-            if (!busy && adbReady && (!checkedOnce || running)) {
+            if (shouldPollBroadcastStatus(
+                    adbReady = currentAdbState == WirelessDebuggingManager.DebuggingState.READY,
+                    busy = busy,
+                    checkedOnce = checkedOnce,
+                    running = running,
+                )
+            ) {
                 checkedOnce = true
                 val liveResult = withContext(Dispatchers.IO) { NetworkBroadcastController.status(context) }
                 liveResult.onSuccess { raw ->
@@ -256,6 +268,13 @@ internal fun NetworkBroadcastScreen(
         }
     }
 }
+
+internal fun shouldPollBroadcastStatus(
+    adbReady: Boolean,
+    busy: Boolean,
+    checkedOnce: Boolean,
+    running: Boolean,
+): Boolean = adbReady && !busy && (!checkedOnce || running)
 
 @Composable
 private fun StatusRow(label: String, ready: Boolean, value: String) {
