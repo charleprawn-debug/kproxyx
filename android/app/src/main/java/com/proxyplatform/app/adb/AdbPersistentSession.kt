@@ -146,7 +146,7 @@ internal class AdbPersistentSession private constructor(
             val command =
                 "apk=${dollar}(pm path '$packageName' | sed -n 's/^package://p' | head -n 1); export apk; " +
                     "test -n \"${dollar}apk\" || { echo ADB_HELPER_APK_NOT_FOUND >&2; exit 1; }; " +
-                    "nohup sh -c 'trap \"\" HUP; echo HELPER_SHELL_STARTED >&2; " +
+                    "setsid sh -c 'trap \"\" HUP; echo HELPER_SHELL_STARTED >&2; " +
                     "exec env CLASSPATH=\"${dollar}apk\" app_process /system/bin $helper $socket' " +
                     ">$logPath 2>&1 </dev/null & echo ${dollar}!"
             return AdbPersistentSession(context.applicationContext, socket, command, logPath)
