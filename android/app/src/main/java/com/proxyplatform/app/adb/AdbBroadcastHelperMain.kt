@@ -1,6 +1,8 @@
 package com.proxyplatform.app.adb
 
 import android.net.LocalSocket
+import android.net.LocalServerSocket
+import android.os.Looper
 import dev.shizzi.TetherService
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -13,22 +15,41 @@ import org.json.JSONObject
 object AdbBroadcastHelperMain {
     @JvmStatic
     fun main(args: Array<String>) {
-        var server: android.net.LocalServerSocket? = null
+        var server: LocalServerSocket? = null
         var service: TetherService? = null
         try {
             System.err.println("HELPER_MAIN_ENTERED args=${args.size}")
             System.err.flush()
+            Looper.prepareMainLooper()
+
             val socketName = args.firstOrNull()?.takeIf { it.isNotBlank() }
                 ?: error("broadcast helper socket name is missing")
-            server = android.net.LocalServerSocket(socketName)
+            server = LocalServerSocket(socketName)
             service = TetherService()
             val activeServer = server ?: error("broadcast server was not created")
             val activeService = service ?: error("tether service was not created")
-            var keepRunning = true
-            while (keepRunning) {
-                val client = activeServer.accept()
-                keepRunning = handle(client, activeService)
-            }
+
+            val socketThread = Thread({
+                try {
+                    var keepRunning = true
+                    while (keepRunning) {
+                        val client = activeServer.accept()
+                        keepRunning = handle(client, activeService)
+                    }
+                } catch (failure: Throwable) {
+                    failure.printStackTrace(System.err)
+                    System.err.flush()
+                } finally {
+                    runCatching { activeService.stop() }
+                    runCatching { activeServer.close() }
+                    Looper.getMainLooper().quitSafely()
+                }
+            }, "kuncloak-broadcast-socket")
+            socketThread.isDaemon = true
+            socketThread.start()
+
+            // Tethering callbacks are posted to the main Handler by Android.
+            Looper.loop()
         } catch (failure: Throwable) {
             failure.printStackTrace(System.err)
             System.err.flush()
