@@ -13,19 +13,29 @@ import org.json.JSONObject
 object AdbBroadcastHelperMain {
     @JvmStatic
     fun main(args: Array<String>) {
-        val socketName = args.firstOrNull()?.takeIf { it.isNotBlank() }
-            ?: error("broadcast helper socket name is missing")
-        val server = android.net.LocalServerSocket(socketName)
-        val service = TetherService()
+        var server: android.net.LocalServerSocket? = null
+        var service: TetherService? = null
         try {
+            System.err.println("HELPER_MAIN_ENTERED args=${args.size}")
+            System.err.flush()
+            val socketName = args.firstOrNull()?.takeIf { it.isNotBlank() }
+                ?: error("broadcast helper socket name is missing")
+            server = android.net.LocalServerSocket(socketName)
+            service = TetherService()
+            val activeServer = server ?: error("broadcast server was not created")
+            val activeService = service ?: error("tether service was not created")
             var keepRunning = true
             while (keepRunning) {
-                val client = server.accept()
-                keepRunning = handle(client, service)
+                val client = activeServer.accept()
+                keepRunning = handle(client, activeService)
             }
+        } catch (failure: Throwable) {
+            failure.printStackTrace(System.err)
+            System.err.flush()
+            throw failure
         } finally {
-            runCatching { service.stop() }
-            runCatching { server.close() }
+            runCatching { service?.stop() }
+            runCatching { server?.close() }
         }
     }
 
