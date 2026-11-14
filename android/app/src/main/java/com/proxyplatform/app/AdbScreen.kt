@@ -290,6 +290,20 @@ internal fun AdbScreen(vm: AppViewModel, padding: PaddingValues) {
                         }
                         WirelessDebuggingManager.DebuggingState.READY -> {
                             AdbInfoNote("الاتصال جاهز. لا حاجة إلى إدخال عنوان IP أو منفذ.")
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                color = KunPalette.SurfaceSoft,
+                            ) {
+                                Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text("ميزات ADB المتاحة", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "الأوامر القصيرة لـSIM والوضع المتقدم تعمل كما هي، وتتوفر أيضاً جلسات ADB مستمرة للميزات التي تحتاج خدمة تعمل في الخلفية مثل بث الشبكة.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
                     }
                     message?.let { text ->

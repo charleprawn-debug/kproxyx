@@ -1,6 +1,5 @@
 package com.proxyplatform.app
 
-import android.os.DeadObjectException
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,18 +47,18 @@ internal fun NetworkBroadcastScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var shizukuStatus by remember { mutableStateOf(ShizukuGate.status()) }
+    var adbState by remember { mutableStateOf(WirelessDebuggingManager.checkState(context)) }
     var running by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    val shizukuReady = shizukuStatus is ShizukuStatus.Ready
+    val adbReady = adbState == WirelessDebuggingManager.DebuggingState.READY
     val vpnReady = ProxyVpnService.isRunning(context)
 
     LaunchedEffect(Unit) {
         var checkedOnce = false
         while (true) {
-            shizukuStatus = ShizukuGate.status()
-            if (!busy && shizukuStatus is ShizukuStatus.Ready && (!checkedOnce || running)) {
+            adbState = WirelessDebuggingManager.checkState(context)
+            if (!busy && adbReady && (!checkedOnce || running)) {
                 checkedOnce = true
                 val liveResult = withContext(Dispatchers.IO) { NetworkBroadcastController.status(context) }
                 liveResult.onSuccess { raw ->
@@ -76,16 +75,12 @@ internal fun NetworkBroadcastScreen(
     }
 
     fun showFailure(failure: Throwable?) {
-        val remoteServiceDied = generateSequence(failure) { it.cause }
-            .any { it is DeadObjectException }
         val detail = generateSequence(failure) { it.cause }
             .mapNotNull { cause -> cause.message?.takeIf { it.isNotBlank() } }
             .firstOrNull()
         message = when {
-            remoteServiceDied ->
-                "توقفت عملية خدمة Shizuku أثناء بدء البث. أُعيد ضبط الربط؛ أعد المحاولة، وإذا تكرر الخطأ أرسل سجل Shizuku من الجهاز."
             detail != null -> detail
-            else -> "تعذر تشغيل جلسة بث الشبكة. تحقق من Shizuku وADB ثم أعد المحاولة."
+            else -> "تعذر تشغيل جلسة بث الشبكة. تحقق من اتصال Wireless ADB ثم أعد المحاولة."
         }
     }
 
@@ -98,7 +93,7 @@ internal fun NetworkBroadcastScreen(
             PageHeading(
                 eyebrow = "Kun cloak",
                 title = "بث شبكة",
-                subtitle = "اضغط Start لتشغيل نقطة الاتصال وربطها بالبروكسي تلقائيًا عبر جلسة Shizuku المحمية.",
+                subtitle = "اضغط Start لتشغيل نقطة الاتصال وربطها بالبروكسي عبر جلسة ADB مستمرة.",
             )
         }
         item {
@@ -133,7 +128,7 @@ internal fun NetworkBroadcastScreen(
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
-                        if (running) "نقطة الاتصال مربوطة بالبروكسي عبر Shizuku" else "فعّل Shizuku ثم اضغط Start",
+                        if (running) "نقطة الاتصال مربوطة بالبروكسي عبر جلسة ADB" else "فعّل Wireless ADB ثم اضغط Start",
                         color = Color.White.copy(alpha = 0.86f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -148,16 +143,11 @@ internal fun NetworkBroadcastScreen(
             ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("جاهزية البث", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                    StatusRow("Shizuku", shizukuReady, shizukuStatusLabel(shizukuStatus))
+                    StatusRow("Wireless ADB", adbReady, adbStateLabel(adbState))
                     StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "اختياري")
-                    if (!shizukuReady) {
-                        BroadcastInfoNote("شغّل Shizuku عبر USB أو Root ثم امنح Kun cloak الصلاحية. لا يحتاج بث الشبكة إلى Wireless ADB.", warning = true)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            KUNSecondaryButton("فتح Shizuku", { ShizukuGate.openDownloadPage(context) }, Modifier.weight(1f))
-                            if (shizukuStatus is ShizukuStatus.PermissionRequired) {
-                                KUNSecondaryButton("منح الصلاحية", { ShizukuGate.requestPermission() }, Modifier.weight(1f))
-                            }
-                        }
+                    if (!adbReady) {
+                        BroadcastInfoNote("فعّل Wireless ADB وأكمل الاقتران من صفحة ADB. لا تحتاج صفحة البث إلى تثبيت Shizuku.", warning = true)
+                        KUNSecondaryButton("فتح صفحة ADB", onGoToAdb, Modifier.fillMaxWidth())
                     }
                 }
             }
@@ -194,7 +184,7 @@ internal fun NetworkBroadcastScreen(
                         busy = false
                     }
                 },
-                enabled = shizukuReady,
+                enabled = adbReady,
                 loading = busy,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
@@ -218,10 +208,13 @@ private fun StatusRow(label: String, ready: Boolean, value: String) {
     }
 }
 
-private fun shizukuStatusLabel(status: ShizukuStatus): String = when (status) {
-    ShizukuStatus.NotRunning -> "غير جاهز"
-    ShizukuStatus.PermissionRequired -> "تحتاج صلاحية"
-    is ShizukuStatus.Ready -> "جاهز"
+private fun adbStateLabel(state: WirelessDebuggingManager.DebuggingState): String = when (state) {
+    WirelessDebuggingManager.DebuggingState.READY -> "جاهز"
+    WirelessDebuggingManager.DebuggingState.PAIRED_NOT_CONNECTED -> "مقترن لكن غير متصل"
+    WirelessDebuggingManager.DebuggingState.NOT_PAIRED -> "غير مقترن"
+    WirelessDebuggingManager.DebuggingState.WIRELESS_DISABLED -> "غير مفعّل"
+    WirelessDebuggingManager.DebuggingState.DEVELOPER_DISABLED -> "خيارات المطوّر غير مفعّلة"
+    WirelessDebuggingManager.DebuggingState.UNSUPPORTED_ANDROID_VERSION -> "يتطلب Android 11+"
 }
 
 @Composable
