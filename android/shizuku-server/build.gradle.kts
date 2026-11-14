@@ -19,6 +19,7 @@ kotlin {
 
 dependencies {
     implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("androidx.annotation:annotation:1.3.0")
     implementation("androidx.core:core:1.16.0")
     implementation("com.google.code.gson:gson:2.13.1")
