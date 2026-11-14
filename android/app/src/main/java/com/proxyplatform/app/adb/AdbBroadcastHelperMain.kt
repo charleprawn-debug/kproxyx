@@ -7,7 +7,6 @@ import android.net.LocalSocket
 import android.net.LocalServerSocket
 import android.content.Context
 import android.os.Looper
-import dev.shizzi.TetherService
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
@@ -23,7 +22,7 @@ object AdbBroadcastHelperMain {
     @JvmStatic
     fun main(args: Array<String>) {
         var server: LocalServerSocket? = null
-        var service: TetherService? = null
+        var service: ServiceBridge? = null
         try {
             System.err.println("HELPER_MAIN_ENTERED args=${args.size}")
             System.err.flush()
@@ -77,7 +76,7 @@ object AdbBroadcastHelperMain {
         packageName: String,
         serviceClassName: String,
         userId: Int,
-    ): TetherService {
+    ): ServiceBridge {
         val activityThreadClass = Class.forName("android.app.ActivityThread")
         val systemMain = activityThreadClass.getMethod("systemMain").invoke(null)
         val systemContext = activityThreadClass
@@ -125,11 +124,41 @@ object AdbBroadcastHelperMain {
         } else {
             serviceClass.getDeclaredConstructor().newInstance()
         }
-        return instance as? TetherService
-            ?: error("$serviceClassName is not an ITetherService implementation")
+        require(instance is android.os.IBinder) {
+            "$serviceClassName did not create a Binder service; actual=${instance.javaClass.name}"
+        }
+        return ServiceBridge(instance)
     }
 
-    private fun handle(socket: LocalSocket, service: TetherService): Boolean {
+    private class ServiceBridge(private val target: Any) {
+        private val targetClass = target.javaClass
+
+        fun start(): String = call("start", true, "AUTO", "NEVER") as String
+
+        fun startNever(): String = call("start", true, "NEVER", "NEVER") as String
+
+        fun stop(): String = call("stop") as String
+
+        fun status(): String = call("getStatus") as String
+
+        fun compatibility(): String = call("checkCompatibility") as String
+
+        private fun call(name: String, vararg args: Any?): Any? {
+            val parameterTypes = args.map { value ->
+                when (value) {
+                    is Boolean -> java.lang.Boolean.TYPE
+                    is String -> String::class.java
+                    null -> Any::class.java
+                    else -> value.javaClass
+                }
+            }.toTypedArray()
+            val method = targetClass.getMethod(name, *parameterTypes)
+            method.isAccessible = true
+            return method.invoke(target, *args)
+        }
+    }
+
+    private fun handle(socket: LocalSocket, service: ServiceBridge): Boolean {
         socket.use {
             val reader = BufferedReader(InputStreamReader(it.inputStream, StandardCharsets.UTF_8))
             val writer = BufferedWriter(OutputStreamWriter(it.outputStream, StandardCharsets.UTF_8))
@@ -137,11 +166,11 @@ object AdbBroadcastHelperMain {
             val command = runCatching { JSONObject(request).optString("command") }.getOrDefault("")
             val response = runCatching {
                 when (command) {
-                    "status" -> service.getStatus()
-                    "start" -> service.start(true, "AUTO", "NEVER")
-                    "startNever" -> service.start(true, "NEVER", "NEVER")
+                    "status" -> service.status()
+                    "start" -> service.start()
+                    "startNever" -> service.startNever()
                     "stop" -> service.stop()
-                    "checkCompatibility" -> service.checkCompatibility()
+                    "checkCompatibility" -> service.compatibility()
                     "shutdown" -> service.stop()
                     else -> error("unsupported helper command")
                 }
