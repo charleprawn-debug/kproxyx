@@ -7,7 +7,6 @@ import android.net.LocalSocket
 import android.net.LocalServerSocket
 import android.content.Context
 import android.os.Looper
-import android.os.UserHandle
 import dev.shizzi.TetherService
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -84,11 +83,20 @@ object AdbBroadcastHelperMain {
         val systemContext = activityThreadClass
             .getMethod("getSystemContext")
             .invoke(systemMain) as Context
-        val appContext = systemContext.createPackageContextAsUser(
+        val userHandleClass = Class.forName("android.os.UserHandle")
+        val userHandle = userHandleClass.getMethod("of", Integer.TYPE).invoke(null, userId)
+        val createPackageContextAsUser = Context::class.java.getMethod(
+            "createPackageContextAsUser",
+            String::class.java,
+            Integer.TYPE,
+            userHandleClass,
+        )
+        val appContext = createPackageContextAsUser.invoke(
+            systemContext,
             packageName,
             Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY,
-            UserHandle.of(userId),
-        )
+            userHandle,
+        ) as Context
 
         val packageInfoField: Field = appContext.javaClass.getDeclaredField("mPackageInfo")
         packageInfoField.isAccessible = true
@@ -96,7 +104,7 @@ object AdbBroadcastHelperMain {
             ?: error("loaded APK is missing for $packageName")
         val makeApplication: Method = loadedApk.javaClass.getDeclaredMethod(
             "makeApplication",
-            Boolean::class.javaPrimitiveType,
+            java.lang.Boolean.TYPE,
             android.app.Instrumentation::class.java,
         )
         makeApplication.isAccessible = true
