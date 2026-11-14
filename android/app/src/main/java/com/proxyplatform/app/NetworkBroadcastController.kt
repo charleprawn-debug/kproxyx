@@ -69,8 +69,20 @@ internal object NetworkBroadcastController {
         .getString(LOG_KEY, "")
         .orEmpty()
 
+    fun diagnostics(context: Context): String {
+        val appLog = AdvancedOperationLog.readLines(context, maxLines = 700).joinToString("\n")
+        val broadcastLog = logs(context)
+        return buildString {
+            appendLine("===== Broadcast controller =====")
+            appendLine(broadcastLog.ifBlank { "<لا يوجد سجل عمليات البث>" })
+            appendLine("===== ADB / application transcript =====")
+            append(appLog.ifBlank { "<لا يوجد سجل ADB بعد>" })
+        }.takeLast(MAX_LOG_CHARS)
+    }
+
     fun clearLogs(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(LOG_KEY).apply()
+        AdvancedOperationLog.clear(context)
     }
 
     private fun appendResult(context: Context, operation: String, raw: String) {

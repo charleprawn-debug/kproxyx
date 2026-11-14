@@ -23,6 +23,7 @@ internal class AdbPersistentSession private constructor(
     private val context: Context,
     private val socketName: String,
     private val processCommand: String,
+    private val helperLogPath: String,
 ) {
     @Volatile
     private var processId: Long? = null
@@ -36,6 +37,9 @@ internal class AdbPersistentSession private constructor(
         AdvancedOperationLog.info(context, "تم تشغيل جلسة ADB المستمرة.")
     }.onFailure {
         processId = null
+        helperLog().takeIf { it.isNotBlank() }?.let { log ->
+            AdvancedOperationLog.error(context, "broadcast helper stderr:\n$log")
+        }
         AdvancedOperationLog.exception(context, "فشل تشغيل جلسة ADB المستمرة", it)
     }
 
@@ -52,7 +56,9 @@ internal class AdbPersistentSession private constructor(
             check(response.optBoolean("ok", false)) {
                 response.optString("error").ifBlank { "فشل تنفيذ عملية الجلسة." }
             }
-            response.optString("result")
+            response.optString("result").also { result ->
+                AdvancedOperationLog.output(context, "broadcast helper $command -> $result")
+            }
         }
     }
 
@@ -76,6 +82,10 @@ internal class AdbPersistentSession private constructor(
             response.optBoolean("ok", false)
         }
     }.getOrDefault(false)
+
+    fun helperLog(): String = runCatching {
+        executeAdb("cat '$helperLogPath' 2>/dev/null || true")
+    }.getOrDefault("")
 
     private fun waitForSocket(timeoutMs: Long) {
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
@@ -107,7 +117,10 @@ internal class AdbPersistentSession private constructor(
         if (!adb.isConnected()) {
             adb.connect(EmbeddedAdbManager.DEFAULT_TIMEOUT_MS).getOrThrow()
         }
-        return adb.execute(command).getOrThrow()
+        return adb.execute(command).getOrThrow().also { output ->
+            AdvancedOperationLog.command(context, command)
+            AdvancedOperationLog.output(context, output)
+        }
     }
 
     companion object {
@@ -135,7 +148,7 @@ internal class AdbPersistentSession private constructor(
                     "test -n \"${dollar}apk\" || { echo ADB_HELPER_APK_NOT_FOUND >&2; exit 1; }; " +
                     "nohup env CLASSPATH=\"${dollar}apk\" app_process /system/bin $helper $socket " +
                     ">$logPath 2>&1 </dev/null & echo ${dollar}!"
-            return AdbPersistentSession(context.applicationContext, socket, command)
+            return AdbPersistentSession(context.applicationContext, socket, command, logPath)
         }
 
         private const val SESSION_PREFS = "adb_persistent_sessions"

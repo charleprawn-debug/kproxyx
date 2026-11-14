@@ -136,6 +136,17 @@ internal object AdvancedOperationLog {
     }.onFailure { Log.e(TAG, "Unable to read operation log", it) }
         .getOrDefault(emptyList())
 
+    fun clear(context: Context) {
+        runCatching {
+            writer.submit {
+                synchronized(lock) {
+                    logFile(context).delete()
+                    mirrorFile(context)?.delete()
+                }
+            }.get()
+        }.onFailure { Log.e(TAG, "Unable to clear operation log", it) }
+    }
+
     /** Copy the complete transcript to a Storage Access Framework destination. */
     fun export(context: Context, destination: Uri): Result<Long> = runCatching {
         writer.submit<Long> {
