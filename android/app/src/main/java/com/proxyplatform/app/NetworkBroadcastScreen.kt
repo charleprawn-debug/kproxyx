@@ -143,7 +143,7 @@ internal fun NetworkBroadcastScreen(
             ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("جاهزية البث", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                    StatusRow("Wireless ADB", adbReady, adbStateLabel(adbState))
+                    StatusRow("Wireless ADB", adbReady, broadcastAdbStateLabel(adbState))
                     StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "اختياري")
                     if (!adbReady) {
                         BroadcastInfoNote("فعّل Wireless ADB وأكمل الاقتران من صفحة ADB. لا تحتاج صفحة البث إلى تثبيت Shizuku.", warning = true)
@@ -208,7 +208,7 @@ private fun StatusRow(label: String, ready: Boolean, value: String) {
     }
 }
 
-private fun adbStateLabel(state: WirelessDebuggingManager.DebuggingState): String = when (state) {
+private fun broadcastAdbStateLabel(state: WirelessDebuggingManager.DebuggingState): String = when (state) {
     WirelessDebuggingManager.DebuggingState.READY -> "جاهز"
     WirelessDebuggingManager.DebuggingState.PAIRED_NOT_CONNECTED -> "مقترن لكن غير متصل"
     WirelessDebuggingManager.DebuggingState.NOT_PAIRED -> "غير مقترن"

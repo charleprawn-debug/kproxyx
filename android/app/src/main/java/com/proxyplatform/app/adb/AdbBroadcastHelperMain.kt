@@ -1,7 +1,6 @@
 package com.proxyplatform.app.adb
 
 import android.net.LocalSocket
-import android.net.LocalSocketAddress
 import dev.shizzi.TetherService
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -16,9 +15,7 @@ object AdbBroadcastHelperMain {
     fun main(args: Array<String>) {
         val socketName = args.firstOrNull()?.takeIf { it.isNotBlank() }
             ?: error("broadcast helper socket name is missing")
-        val serverSocket = LocalSocket()
-        serverSocket.bind(LocalSocketAddress(socketName, LocalSocketAddress.Namespace.ABSTRACT))
-        val server = android.net.LocalServerSocket(serverSocket)
+        val server = android.net.LocalServerSocket(socketName)
         val service = TetherService()
         try {
             var keepRunning = true
