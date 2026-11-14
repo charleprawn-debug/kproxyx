@@ -10,3 +10,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "ProxyPlatform"
 include(":app")
+include(":shizuku-server")

@@ -1,9 +1,11 @@
 # Third-party notices
 
-## Shizuku UserService bootstrap
+## Embedded Shizuku-compatible server
 
-`android/app/src/main/java/com/proxyplatform/app/adb/AdbBroadcastHelperMain.kt` contains a modified adaptation of the `UserService` bootstrap from [Shizuku](https://github.com/RikkaApps/Shizuku) / [Shizuku-API](https://github.com/RikkaApps/Shizuku-API).
+The `android/shizuku-server` module contains modified source from the Shizuku and Shizuku-API projects, including the server, server-shared, starter, common, and UserService implementation used to provide the Binder transport for KProxyX.
 
-Shizuku is distributed under the Apache License, Version 2.0. The adaptation is used under the same license. The upstream license text is available at <https://www.apache.org/licenses/LICENSE-2.0>.
+Shizuku is distributed under the Apache License, Version 2.0. The copied and modified source is used under the same license. The upstream license text is available at <https://www.apache.org/licenses/LICENSE-2.0> and the upstream project is available at <https://github.com/RikkaApps/Shizuku>.
 
-Copyright RikkaApps contributors. Modifications for KProxyX are identified in the source file.
+Copyright RikkaApps contributors. KProxyX-specific modifications are identified in the integration layer and package configuration.
+
+The embedded server is launched as a separate `app_process` under the Android `shell` UID through Wireless ADB. The normal KProxyX application process does not claim shell privileges.

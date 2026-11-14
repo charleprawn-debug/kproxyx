@@ -1,15 +1,20 @@
 package com.proxyplatform.app
 
 import android.content.Context
-import com.proxyplatform.app.adb.AdbPersistentSession
+import com.proxyplatform.app.adb.AdbShizukuServerSession
+import dev.shizzi.TetherClient
+import dev.shizzi.UsbTethering
+import dev.shizzi.VpnMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
-import org.json.JSONObject
 
-/** Controls the broadcast helper launched by the shared Wireless ADB layer. */
+/**
+ * Broadcast controller backed by the embedded Shizuku-compatible Binder server.
+ * The old app_process/LocalSocket helper is deliberately not used here.
+ */
 internal object NetworkBroadcastController {
     private const val PREFS = "network_broadcast_diagnostics"
     private const val LOG_KEY = "events"
@@ -17,7 +22,9 @@ internal object NetworkBroadcastController {
 
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val operationMutex = Mutex()
-    private fun session(context: Context) = AdbPersistentSession.forBroadcast(context)
+    private val tetherClient = TetherClient()
+
+    private fun server(context: Context) = AdbShizukuServerSession.get(context)
 
     private suspend fun <T> execute(block: suspend () -> T): T =
         controllerScope.async {
@@ -34,32 +41,37 @@ internal object NetworkBroadcastController {
             require(WirelessDebuggingManager.checkState(context) == WirelessDebuggingManager.DebuggingState.READY) {
                 "اتصال Wireless ADB غير جاهز. افتح صفحة ADB وأعد الاتصال."
             }
-            val helper = session(context)
-            appendLog(context, "START requested; launching broadcast helper through Wireless ADB")
-            helper.start().getOrThrow()
-            val startCommand = if (ProxyVpnService.isRunning(context)) "startNever" else "start"
-            appendLog(context, "starting helper session with vpnMode=$startCommand")
-            val raw = helper.request(startCommand).getOrThrow()
-            appendResult(context, "START", raw)
-            raw
+            appendLog(context, "START requested; launching embedded Shizuku server through Wireless ADB")
+            server(context).start().getOrThrow()
+            appendLog(context, "Binder READY; binding TetherService through Shizuku UserService")
+            val vpnMode = if (ProxyVpnService.isRunning(context)) VpnMode.NEVER else VpnMode.AUTO
+            val result = tetherClient.start(
+                logging = true,
+                vpnMode = vpnMode,
+                usbTethering = UsbTethering.NEVER,
+            )
+            appendResult(context, "START", result)
+            result
         }.onFailure { appendFailure(context, "START", it) }
     }
 
     suspend fun stop(context: Context): Result<String> = execute {
         runCatching {
-            appendLog(context, "STOP requested")
-            val helper = session(context)
-            val result = helper.request("stop")
-            result.onSuccess { appendResult(context, "STOP", it) }
-                .onFailure { appendFailure(context, "STOP helper call", it) }
-            helper.stop()
-            result.getOrThrow()
+            appendLog(context, "STOP requested; calling TetherService over Binder")
+            val result = tetherClient.stop()
+            tetherClient.unbindAndStopDaemon()
+            server(context).stop().onFailure {
+                appendFailure(context, "STOP Shizuku server", it)
+            }
+            appendResult(context, "STOP", result)
+            result
         }.onFailure { appendFailure(context, "STOP", it) }
     }
 
     suspend fun status(context: Context): Result<String> = execute {
         runCatching {
-            val raw = session(context).request("status").getOrThrow()
+            check(server(context).isReady()) { "Shizuku Binder غير جاهز" }
+            val raw = tetherClient.status()
             appendResult(context, "STATUS", raw)
             raw
         }.onFailure { appendFailure(context, "STATUS", it) }
@@ -72,9 +84,12 @@ internal object NetworkBroadcastController {
     fun diagnostics(context: Context): String {
         val appLog = AdvancedOperationLog.readLines(context, maxLines = 700).joinToString("\n")
         val broadcastLog = logs(context)
+        val remoteLog = server(context).readRemoteLog().getOrDefault("<لا يوجد سجل server أو ADB غير متصل>")
         return buildString {
-            appendLine("===== Broadcast controller =====")
+            appendLine("===== Broadcast controller / Binder transcript =====")
             appendLine(broadcastLog.ifBlank { "<لا يوجد سجل عمليات البث>" })
+            appendLine("===== Embedded Shizuku server log (UID shell) =====")
+            appendLine(remoteLog.ifBlank { "<سجل server فارغ>" })
             appendLine("===== ADB / application transcript =====")
             append(appLog.ifBlank { "<لا يوجد سجل ADB بعد>" })
         }.takeLast(MAX_LOG_CHARS)
@@ -86,14 +101,7 @@ internal object NetworkBroadcastController {
     }
 
     private fun appendResult(context: Context, operation: String, raw: String) {
-        val parsed = runCatching { JSONObject(raw) }.getOrNull()
-        val state = parsed?.optString("state").orEmpty()
-        val detail = parsed?.optString("detail").orEmpty()
-        appendLog(
-            context,
-            "$operation result: state=${state.ifBlank { "<none>" }}" +
-                if (detail.isBlank()) " raw=$raw" else " detail=$detail",
-        )
+        appendLog(context, "$operation result: $raw")
     }
 
     private fun appendFailure(context: Context, operation: String, failure: Throwable) {
