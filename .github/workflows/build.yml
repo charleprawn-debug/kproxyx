@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - feat/adb-persistent-broadcast-bridge
+      - feat/adb-broadcast-control
   pull_request:
     branches: [main]
 
