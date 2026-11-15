@@ -8,12 +8,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -33,10 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -58,8 +52,6 @@ internal fun NetworkBroadcastScreen(
     var running by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    var terminalText by remember { mutableStateOf("") }
-    val clipboardManager = LocalClipboardManager.current
     val adbReady = adbState == WirelessDebuggingManager.DebuggingState.READY
     val vpnReady = ProxyVpnService.isRunning(context)
 
@@ -68,31 +60,28 @@ internal fun NetworkBroadcastScreen(
         while (true) {
             adbState = WirelessDebuggingManager.checkState(context)
             serverReady = NetworkBroadcastController.isServerReady(context)
-            terminalText = withContext(Dispatchers.IO) { NetworkBroadcastController.diagnostics(context) }
             if (!busy && (!checkedOnce || running || serverReady)) {
                 checkedOnce = true
                 val liveResult = withContext(Dispatchers.IO) { NetworkBroadcastController.status(context) }
                 liveResult.onSuccess { raw ->
                     val parsed = runCatching { JSONObject(raw) }.getOrNull()
                     val state = parsed?.optString("state").orEmpty()
-                    val detail = parsed?.optString("detail").orEmpty()
                     if (state == "ACTIVE") running = true
-                    else if (state == "READY" || state == "ERROR") running = false
-                    if (state == "ERROR" && detail.isNotBlank()) message = detail
+                    else if (state == "READY" || state == "IDLE" || state == "ERROR") running = false
+                    if (state == "ERROR") message = BroadcastUiMessages.operationResult(state, false)
                 }
             }
             delay(2_500)
         }
     }
 
-    fun showFailure(failure: Throwable?) {
-        val detail = generateSequence(failure) { it.cause }
-            .mapNotNull { cause -> cause.message?.takeIf { it.isNotBlank() } }
-            .firstOrNull()
-        message = when {
-            detail != null -> detail
-            else -> "تعذر تنفيذ أمر البث. راجع سجل Terminal لمعرفة سبب توقف الخدمة."
-        }
+    fun showFailure() {
+        // Do not display exception messages, stack traces, remote JSON detail,
+        // paths, commands, or connection data on the customer-facing screen.
+        message = BroadcastUiMessages.failure(
+            NetworkBroadcastController.isServerReady(context),
+            WirelessDebuggingManager.checkState(context) == WirelessDebuggingManager.DebuggingState.READY,
+        )
     }
 
     LazyColumn(
@@ -139,7 +128,7 @@ internal fun NetworkBroadcastScreen(
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
-                        if (running) "نقطة الاتصال مربوطة بالبروكسي عبر جلسة ADB" else "فعّل Wireless ADB ثم اضغط Start",
+                        if (running) "نقطة الاتصال مربوطة بالبروكسي" else "جهّز الاتصال ثم اضغط Start",
                         color = Color.White.copy(alpha = 0.86f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -155,7 +144,7 @@ internal fun NetworkBroadcastScreen(
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("جاهزية البث", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                     StatusRow("Wireless ADB", adbReady, broadcastAdbStateLabel(adbState))
-                    StatusRow("خادم البث المدمج", serverReady, if (serverReady) "جاهز عبر Binder" else "غير مشغّل")
+                    StatusRow("خدمة البث", serverReady, if (serverReady) "جاهزة" else "غير مشغّلة")
                     StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "اختياري")
                     if (!adbReady && !serverReady) {
                         BroadcastInfoNote("فعّل Wireless ADB وأكمل الاقتران من صفحة ADB. لا تحتاج صفحة البث إلى تثبيت Shizuku.", warning = true)
@@ -170,32 +159,24 @@ internal fun NetworkBroadcastScreen(
             KUNPrimaryButton(
                 text = if (running) "إيقاف البث" else "Start",
                 onClick = {
+                    val stopping = running
                     busy = true
                     message = null
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
-                            if (running) NetworkBroadcastController.stop(context) else NetworkBroadcastController.start(context)
+                            if (stopping) NetworkBroadcastController.stop(context) else NetworkBroadcastController.start(context)
                         }
                         result.fold(
                             onSuccess = { raw ->
                                 val state = runCatching { JSONObject(raw).optString("state") }.getOrDefault("")
-                                val detail = runCatching { JSONObject(raw).optString("detail") }
-                                    .getOrDefault(raw)
-                                    .ifBlank { raw }
-                                if (state == "ACTIVE") {
-                                    running = true
-                                    message = "نجح تشغيل البث."
-                                } else if (!running) {
+                                if (state == "ACTIVE") running = true
+                                else if (state == "READY" || state == "IDLE" || state == "ERROR") {
                                     running = false
-                                    message = "لم ينجح تشغيل البث: $detail"
-                                } else {
-                                    running = false
-                                    message = "نجح إيقاف البث."
                                 }
+                                message = BroadcastUiMessages.operationResult(state, stopping)
                             },
-                            onFailure = ::showFailure,
+                            onFailure = { showFailure() },
                         )
-                        terminalText = withContext(Dispatchers.IO) { NetworkBroadcastController.diagnostics(context) }
                         busy = false
                     }
                 },
@@ -208,54 +189,6 @@ internal fun NetworkBroadcastScreen(
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                     Text(text, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-            }
-        }
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(22.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
-            ) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "سجل Terminal — أوامر ونتائج البث",
-                            modifier = Modifier.weight(1f),
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text("LIVE", color = Color(0xFF86EFAC), style = MaterialTheme.typography.labelSmall)
-                    }
-                    Box(
-                        Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 360.dp)
-                            .clip(RoundedCornerShape(12.dp)).background(Color(0xFF030712))
-                            .verticalScroll(rememberScrollState()).padding(12.dp),
-                    ) {
-                        Text(
-                            terminalText.ifBlank { "لا يوجد سجل بعد. اضغط Start لتسجيل أول محاولة." },
-                            color = Color(0xFFE5E7EB),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        KUNSecondaryButton(
-                            "نسخ السجل",
-                            { clipboardManager.setText(AnnotatedString(terminalText)) },
-                            Modifier.weight(1f),
-                            enabled = terminalText.isNotBlank(),
-                        )
-                        KUNSecondaryButton(
-                            "مسح السجل",
-                            {
-                                NetworkBroadcastController.clearLogs(context)
-                                terminalText = NetworkBroadcastController.diagnostics(context)
-                            },
-                            Modifier.weight(1f),
-                        )
-                    }
                 }
             }
         }

@@ -116,6 +116,13 @@ supported arm64 device.
 
 ## Physical-device acceptance
 
+The customer-facing broadcast page does not render or copy diagnostic logs.
+It does not poll diagnostic shell commands. Service JSON `detail`, raw JSON,
+exception messages, paths and stack traces are never passed to visible message
+text: only fixed Arabic messages selected by allowlisted states/readiness are
+shown. Diagnostics remain internal; this is not a claim that the app is tamper
+proof or that a rooted device cannot inspect its own files.
+
 Use a build of this branch, without installing external Shizuku:
 
 1. Pair/connect from the ADB page, then start broadcast.
@@ -127,7 +134,8 @@ Use a build of this branch, without installing external Shizuku:
    reused.
 6. Disconnect Wireless ADB while broadcasting and exercise Stop.
 
-If startup fails, copy the broadcast terminal log. It now includes the
-bootstrap/server stderr and a separate UserService log, with package-specific
-process diagnostics. Do not diagnose every exit 137 as an OEM kill or increase
-the Binder timeout without examining those logs.
+Internal diagnostics include bootstrap/server stderr and a separate UserService
+log, with package-specific process diagnostics. They are not exposed by a
+terminal or copy button on the broadcast page. A cached snapshot without the
+operation transcript is not evidence of a new server crash. Do not diagnose
+every exit 137 as an OEM kill or increase the Binder timeout without evidence.
