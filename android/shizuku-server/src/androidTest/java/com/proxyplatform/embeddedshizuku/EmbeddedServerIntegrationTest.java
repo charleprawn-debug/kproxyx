@@ -46,7 +46,8 @@ public class EmbeddedServerIntegrationTest {
         Shizuku.OnBinderReceivedListener listener = ready::countDown;
         Shizuku.addBinderReceivedListenerSticky(listener);
         Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(new ComponentName(pkg, EchoService.class.getName()))
-                .tag("embedded-integration").daemon(false).debuggable(false).version(1);
+                .tag("embedded-integration").processNameSuffix("integration")
+                .daemon(false).debuggable(false).version(1);
         CountDownLatch bound = new CountDownLatch(1);
         AtomicReference<IBinder> remote = new AtomicReference<>();
         ServiceConnection connection = new ServiceConnection() {
