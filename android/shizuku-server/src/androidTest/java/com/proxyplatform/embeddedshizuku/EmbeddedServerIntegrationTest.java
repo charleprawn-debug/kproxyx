@@ -11,6 +11,8 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.util.Log;
+import android.util.Base64;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
@@ -31,12 +33,15 @@ import rikka.shizuku.ShizukuApiConstants;
 @RunWith(AndroidJUnit4.class)
 @SuppressLint("RestrictedApi")
 public class EmbeddedServerIntegrationTest {
-    @Test
+    @Test(timeout = 90_000)
     public void shellServerDeliversBinderAndStartsUserService() throws Exception {
+        Log.i("KProxyXShizukuTest", "test entered");
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         String pkg = context.getPackageName();
         assertNotNull(context.getPackageManager().resolveContentProvider(pkg + ".embedded-shizuku", 0));
+        Log.i("KProxyXShizukuTest", "cleaning previous process");
         shell(EmbeddedServerCommand.stop(pkg));
+        Log.i("KProxyXShizukuTest", "starting shell server");
         CountDownLatch ready = new CountDownLatch(1);
         Shizuku.OnBinderReceivedListener listener = ready::countDown;
         Shizuku.addBinderReceivedListenerSticky(listener);
@@ -52,15 +57,19 @@ public class EmbeddedServerIntegrationTest {
             @Override public void onServiceDisconnected(ComponentName name) {}
         };
         try (ParcelFileDescriptor stream = InstrumentationRegistry.getInstrumentation()
-                .getUiAutomation().executeShellCommand(EmbeddedServerCommand.start(pkg))) {
+                .getUiAutomation().executeShellCommand(shellScript(EmbeddedServerCommand.start(pkg)))) {
+            Log.i("KProxyXShizukuTest", "waiting for server Binder");
             assertTrue("Server startup failed", await(ready, pkg, false));
+            Log.i("KProxyXShizukuTest", "server Binder received");
             assertEquals(2000, Shizuku.getUid());
             assertTrue(Shizuku.getVersion() >= 13);
             assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED, Shizuku.checkSelfPermission());
             Shizuku.bindUserService(args, connection);
+            Log.i("KProxyXShizukuTest", "waiting for UserService Binder");
             assertTrue("UserService handshake failed", await(bound, pkg, true));
             assertNotNull(remote.get());
             assertEquals("kproxyx.integration", remote.get().getInterfaceDescriptor());
+            Log.i("KProxyXShizukuTest", "UserService Binder verified");
         } finally {
             Shizuku.removeBinderReceivedListener(listener);
             try { Shizuku.unbindUserService(args, connection, true); } catch (Throwable ignored) {}
@@ -79,7 +88,7 @@ public class EmbeddedServerIntegrationTest {
 
     private static String shell(String command) throws Exception {
         try (ParcelFileDescriptor fd = InstrumentationRegistry.getInstrumentation()
-                .getUiAutomation().executeShellCommand(command);
+                .getUiAutomation().executeShellCommand(shellScript(command));
              FileInputStream input = new FileInputStream(fd.getFileDescriptor())) {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             byte[] buffer = new byte[4096];
@@ -87,6 +96,14 @@ public class EmbeddedServerIntegrationTest {
             while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
             return output.toString(StandardCharsets.UTF_8.name());
         }
+    }
+
+    private static String shellScript(String command) {
+        // UiAutomation uses Runtime.exec(String), not adb shell: it tokenizes
+        // whitespace and does not interpret quotes/redirections. Carry the
+        // exact script in one whitespace-free sh -c argument instead.
+        String encoded = Base64.encodeToString(command.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+        return "sh -c echo${IFS}" + encoded + "|base64${IFS}-d|sh";
     }
 
     public static class EchoService extends Binder {
