@@ -57,8 +57,14 @@ public class EmbeddedServerIntegrationTest {
             }
             @Override public void onServiceDisconnected(ComponentName name) {}
         };
-        try (ParcelFileDescriptor stream = InstrumentationRegistry.getInstrumentation()
-                .getUiAutomation().executeShellCommand(shellScript(EmbeddedServerCommand.start(pkg)))) {
+        String transport = "/data/local/tmp/kproxyx-transport-test";
+        shell("rm -f " + transport + ".ready " + transport + ".closed");
+        String encodedCommand = Base64.encodeToString(
+                EmbeddedServerCommand.start(pkg).getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+        try {
+            // The host runs this exact production command through a real adbd
+            // PTY, then disconnects that channel while both Binders are live.
+            shell("echo '" + encodedCommand + "' | base64 -d > " + transport + ".command");
             Log.i("KProxyXShizukuTest", "waiting for server Binder");
             assertTrue("Server startup failed", await(ready, pkg, false));
             Log.i("KProxyXShizukuTest", "server Binder received");
@@ -71,11 +77,37 @@ public class EmbeddedServerIntegrationTest {
             assertNotNull(remote.get());
             assertEquals("kproxyx.integration", remote.get().getInterfaceDescriptor());
             Log.i("KProxyXShizukuTest", "UserService Binder verified");
+            assertEcho(remote.get());
+            shell("touch " + transport + ".ready");
+            long deadline = android.os.SystemClock.elapsedRealtime() + 20_000;
+            while (!shell("test -f " + transport + ".closed && echo closed").contains("closed")
+                    && android.os.SystemClock.elapsedRealtime() < deadline) {
+                Thread.sleep(250);
+            }
+            assertTrue("Host did not disconnect the startup ADB channel",
+                    shell("test -f " + transport + ".closed && echo closed").contains("closed"));
+            Thread.sleep(1_500); // Allow adbd's terminal teardown/death notification to propagate.
+            assertTrue("Server died when the startup ADB channel closed", Shizuku.pingBinder());
+            assertEcho(remote.get());
+            Log.i("KProxyXShizukuTest", "Server and UserService RPC survived ADB channel disconnect");
         } finally {
             Shizuku.removeBinderReceivedListener(listener);
             try { Shizuku.unbindUserService(args, connection, true); } catch (Throwable ignored) {}
             try { Shizuku.exit(); } catch (Throwable ignored) {}
             shell(EmbeddedServerCommand.stop(pkg));
+            shell("rm -f " + transport + ".command " + transport + ".ready " + transport + ".closed");
+        }
+    }
+
+    private static void assertEcho(IBinder service) throws Exception {
+        Parcel data = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        try {
+            assertTrue(service.transact(IBinder.FIRST_CALL_TRANSACTION, data, reply, 0));
+            assertEquals("UserService must still execute as shell", 2000, reply.readInt());
+        } finally {
+            data.recycle();
+            reply.recycle();
         }
     }
 
@@ -112,6 +144,10 @@ public class EmbeddedServerIntegrationTest {
 
         @Override
         protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
+            if (code == IBinder.FIRST_CALL_TRANSACTION) {
+                reply.writeInt(android.os.Process.myUid());
+                return true;
+            }
             if (code == ShizukuApiConstants.USER_SERVICE_TRANSACTION_destroy) {
                 System.exit(0);
                 return true;
