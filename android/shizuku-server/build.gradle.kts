@@ -5,7 +5,10 @@ plugins {
 android {
     namespace = "com.proxyplatform.embeddedshizuku"
     compileSdk = 35
-    defaultConfig { minSdk = 26 }
+    defaultConfig {
+        minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
     buildFeatures { aidl = true; buildConfig = false }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -27,4 +30,8 @@ dependencies {
     implementation("dev.rikka.hidden:compat:4.4.0")
     implementation("dev.rikka.tools.refine:runtime:4.4.0")
     compileOnly("dev.rikka.hidden:stub:4.4.0")
+    androidTestImplementation("dev.rikka.shizuku:api:13.1.5")
+    androidTestImplementation("dev.rikka.shizuku:provider:13.1.5")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

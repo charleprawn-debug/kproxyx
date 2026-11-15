@@ -43,9 +43,10 @@ public class ServiceStarter {
         }
     }
 
-    private static final String USER_SERVICE_CMD_FORMAT = "(CLASSPATH='%s' %s%s /system/bin " +
+    private static final String USER_SERVICE_CMD_FORMAT = "(CLASSPATH='%s' %s -Dkproxyx.manager.package='%s'%s /system/bin " +
             "--nice-name='%s' moe.shizuku.starter.ServiceStarter " +
-            "--token='%s' --package='%s' --class='%s' --uid=%d%s)&";
+            "--token='%s' --package='%s' --class='%s' --uid=%d%s " +
+            ">>'/data/local/tmp/kproxyx-%s-userservice.log' 2>&1 </dev/null)&";
 
     // DeathRecipient will automatically be unlinked when all references to the
     // binder is dropped, so we hold the reference here.
@@ -55,9 +56,10 @@ public class ServiceStarter {
     public static String commandForUserService(String appProcess, String managerApkPath, String token, String packageName, String classname, String processNameSuffix, int callingUid, boolean debug) {
         String processName = String.format("%s:%s", packageName, processNameSuffix);
         return String.format(Locale.ENGLISH, USER_SERVICE_CMD_FORMAT,
-                managerApkPath, appProcess, debug ? (" " + DEBUG_ARGS) : "",
+                managerApkPath, appProcess, MANAGER_PACKAGE, debug ? (" " + DEBUG_ARGS) : "",
                 processName,
-                token, packageName, classname, callingUid, debug ? (" " + "--debug-name=" + processName) : "");
+                token, packageName, classname, callingUid,
+                debug ? (" " + "--debug-name=" + processName) : "", MANAGER_PACKAGE);
     }
 
     public static void main(String[] args) {
@@ -95,7 +97,7 @@ public class ServiceStarter {
 
     private static boolean sendBinder(IBinder binder, String token, boolean retry) {
         String packageName = MANAGER_PACKAGE;
-        String name = packageName + ".shizuku";
+        String name = packageName + ".embedded-shizuku";
         int userId = 0;
         IContentProvider provider = null;
 

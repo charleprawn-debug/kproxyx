@@ -77,8 +77,8 @@
             android:foregroundServiceType="dataSync" />
 
         <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
+            android:name="com.proxyplatform.embeddedshizuku.EmbeddedShizukuProvider"
+            android:authorities="${applicationId}.embedded-shizuku"
             android:enabled="true"
             android:exported="true"
             android:multiprocess="false"

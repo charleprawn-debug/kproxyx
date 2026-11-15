@@ -59,7 +59,8 @@ import rikka.shizuku.server.util.UserHandleCompat;
 public class ShizukuService extends Service<ShizukuUserServiceManager, ShizukuClientManager, ShizukuConfigManager> {
 
     public static void main(String[] args) {
-        DdmHandleAppName.setAppName("shizuku_server", 0);
+        DdmHandleAppName.setAppName(
+                com.proxyplatform.embeddedshizuku.EmbeddedServerCommand.processName(MANAGER_APPLICATION_ID), 0);
         RishConfig.setLibraryPath(System.getProperty("shizuku.library.path"));
 
         Looper.prepareMainLooper();
@@ -517,7 +518,10 @@ public class ShizukuService extends Service<ShizukuUserServiceManager, ShizukuCl
             LOGGER.e(tr, "Failed to add %d:%s to power save temp whitelist", userId, packageName);
         }
 
-        String name = packageName + ".shizuku";
+        // This embedded server must not replace an independently installed
+        // Shizuku manager or deliver privileges to unrelated client apps.
+        if (!MANAGER_APPLICATION_ID.equals(packageName)) return;
+        String name = packageName + ".embedded-shizuku";
         IContentProvider provider = null;
 
         /*

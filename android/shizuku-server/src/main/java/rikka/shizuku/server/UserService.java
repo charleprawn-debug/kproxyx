@@ -4,12 +4,10 @@ import android.app.ActivityThread;
 import android.app.Application;
 import android.app.Instrumentation;
 import android.content.Context;
-import android.content.ContextHidden;
 import android.ddm.DdmHandleAppName;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.UserHandle;
-import android.os.UserHandleHidden;
 import android.util.Log;
 import android.util.Pair;
 
@@ -19,7 +17,6 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
-import dev.rikka.tools.refine.Refine;
 
 public class UserService {
 
@@ -63,12 +60,15 @@ public class UserService {
 
             DdmHandleAppName.setAppName(name != null ? name : pkg + ":user_service", userId);
 
-            //noinspection InstantiationOfUtilityClass
-            UserHandle userHandle = Refine.unsafeCast(
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
-                            ? UserHandleHidden.of(userId)
-                            : new UserHandleHidden(userId));
-            Context context = Refine.<ContextHidden>unsafeCast(systemContext).createPackageContextAsUser(pkg, Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY, userHandle);
+            // This module does not apply the Refine bytecode transform. Hidden
+            // *Hidden stub names must never be referenced at runtime: those
+            // compileOnly classes are not present on an Android device.
+            UserHandle userHandle = (UserHandle) UserHandle.class
+                    .getDeclaredMethod("of", int.class).invoke(null, userId);
+            Context context = (Context) Context.class.getDeclaredMethod(
+                    "createPackageContextAsUser", String.class, int.class, UserHandle.class)
+                    .invoke(systemContext, pkg,
+                            Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY, userHandle);
             Field mPackageInfo = context.getClass().getDeclaredField("mPackageInfo");
             mPackageInfo.setAccessible(true);
             Object loadedApk = mPackageInfo.get(context);

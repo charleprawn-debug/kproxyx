@@ -194,7 +194,7 @@ internal fun NetworkBroadcastScreen(
                         busy = false
                     }
                 },
-                enabled = adbReady,
+                enabled = adbReady || running,
                 loading = busy,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )

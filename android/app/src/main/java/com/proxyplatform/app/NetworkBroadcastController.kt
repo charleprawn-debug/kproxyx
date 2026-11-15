@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
+import org.json.JSONObject
 
 /**
  * Broadcast controller backed by the embedded Shizuku-compatible Binder server.
@@ -52,16 +53,22 @@ internal object NetworkBroadcastController {
             )
             appendResult(context, "START", result)
             result
-        }.onFailure { appendFailure(context, "START", it) }
+        }.onFailure {
+            appendFailure(context, "START", it)
+            tetherClient.unbindAndStopDaemon()
+        }
     }
 
     suspend fun stop(context: Context): Result<String> = execute {
         runCatching {
             appendLog(context, "STOP requested; calling TetherService over Binder")
-            val result = tetherClient.stop()
-            tetherClient.unbindAndStopDaemon()
-            server(context).stop().onFailure {
-                appendFailure(context, "STOP Shizuku server", it)
+            val result = try {
+                if (server(context).isReady()) tetherClient.stop()
+                else JSONObject().put("state", "READY").put("detail", "Stopped").toString()
+            } finally {
+                // A failed RPC must not leave the daemon/hotspot orphaned.
+                tetherClient.unbindAndStopDaemon()
+                server(context).stop().getOrThrow()
             }
             appendResult(context, "STOP", result)
             result
@@ -70,7 +77,9 @@ internal object NetworkBroadcastController {
 
     suspend fun status(context: Context): Result<String> = execute {
         runCatching {
-            check(server(context).isReady()) { "Shizuku Binder غير جاهز" }
+            if (!server(context).isReady()) {
+                return@runCatching JSONObject().put("state", "READY").put("detail", "Stopped").toString()
+            }
             val raw = tetherClient.status()
             appendResult(context, "STATUS", raw)
             raw
