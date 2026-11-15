@@ -1,6 +1,5 @@
 package rikka.shizuku.server;
 
-import static android.Manifest.permission.WRITE_SECURE_SETTINGS;
 import static rikka.shizuku.ShizukuApiConstants.ATTACH_APPLICATION_API_VERSION;
 import static rikka.shizuku.ShizukuApiConstants.ATTACH_APPLICATION_PACKAGE_NAME;
 import static rikka.shizuku.ShizukuApiConstants.BIND_APPLICATION_PERMISSION_GRANTED;
@@ -209,7 +208,8 @@ public class ShizukuService extends Service<ShizukuUserServiceManager, ShizukuCl
 
         isManager = MANAGER_APPLICATION_ID.equals(requestPackageName);
 
-        if (clientManager.findClient(callingUid, callingPid) == null) {
+        clientRecord = clientManager.findClient(callingUid, callingPid);
+        if (clientRecord == null) {
             synchronized (this) {
                 clientRecord = clientManager.addClient(callingUid, callingPid, application, requestPackageName, apiVersion);
             }
@@ -218,6 +218,10 @@ public class ShizukuService extends Service<ShizukuUserServiceManager, ShizukuCl
                 return;
             }
         }
+        // The embedded app is the manager itself. Do not run the external
+        // manager's WRITE_SECURE_SETTINGS grant: this app does not request it,
+        // and PackageManager throws before bindApplication can be delivered.
+        if (isManager) clientRecord.allowed = true;
 
         LOGGER.d("attachApplication: %s %d %d", requestPackageName, callingUid, callingPid);
 
@@ -235,17 +239,8 @@ public class ShizukuService extends Service<ShizukuUserServiceManager, ShizukuCl
         reply.putInt(BIND_APPLICATION_SERVER_VERSION, replyServerVersion);
         reply.putString(BIND_APPLICATION_SERVER_SECONTEXT, OsUtils.getSELinuxContext());
         reply.putInt(BIND_APPLICATION_SERVER_PATCH_VERSION, ShizukuApiConstants.SERVER_PATCH_VERSION);
-        if (!isManager) {
-            reply.putBoolean(BIND_APPLICATION_PERMISSION_GRANTED, Objects.requireNonNull(clientRecord).allowed);
-            reply.putBoolean(BIND_APPLICATION_SHOULD_SHOW_REQUEST_PERMISSION_RATIONALE, false);
-        } else {
-            try {
-                PermissionManagerApis.grantRuntimePermission(MANAGER_APPLICATION_ID,
-                        WRITE_SECURE_SETTINGS, UserHandleCompat.getUserId(callingUid));
-            } catch (RemoteException e) {
-                LOGGER.w(e, "grant WRITE_SECURE_SETTINGS");
-            }
-        }
+        reply.putBoolean(BIND_APPLICATION_PERMISSION_GRANTED, Objects.requireNonNull(clientRecord).allowed);
+        reply.putBoolean(BIND_APPLICATION_SHOULD_SHOW_REQUEST_PERMISSION_RATIONALE, false);
         try {
             application.bindApplication(reply);
         } catch (Throwable e) {

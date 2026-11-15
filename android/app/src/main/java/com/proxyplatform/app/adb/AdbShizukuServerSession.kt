@@ -1,6 +1,7 @@
 package com.proxyplatform.app.adb
 
 import android.content.Context
+import android.annotation.SuppressLint
 import com.proxyplatform.app.BuildConfig
 import com.proxyplatform.app.EmbeddedAdbManager
 import com.proxyplatform.embeddedshizuku.EmbeddedServerCommand
@@ -81,6 +82,8 @@ internal class AdbShizukuServerSession private constructor(
         """.trimIndent()
     )
 
+    // This application intentionally implements Shizuku's manager role.
+    @SuppressLint("RestrictedApi")
     private suspend fun stopRemoteProcess() {
         if (isReady()) runCatching { Shizuku.exit() }
         if (adb.isConnected()) adb.execute(EmbeddedServerCommand.stop(BuildConfig.APPLICATION_ID)).getOrThrow()

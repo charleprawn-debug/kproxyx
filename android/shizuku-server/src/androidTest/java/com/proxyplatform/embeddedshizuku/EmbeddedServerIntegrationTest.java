@@ -3,6 +3,7 @@ package com.proxyplatform.embeddedshizuku;
 import static org.junit.Assert.*;
 
 import android.content.ComponentName;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.ServiceConnection;
 import android.os.Binder;
@@ -28,6 +29,7 @@ import rikka.shizuku.ShizukuApiConstants;
 
 /** Real shell UID, app_process, provider, and UserService; no external Shizuku. */
 @RunWith(AndroidJUnit4.class)
+@SuppressLint("RestrictedApi")
 public class EmbeddedServerIntegrationTest {
     @Test
     public void shellServerDeliversBinderAndStartsUserService() throws Exception {
@@ -54,6 +56,7 @@ public class EmbeddedServerIntegrationTest {
             assertTrue("Server startup failed", await(ready, pkg, false));
             assertEquals(2000, Shizuku.getUid());
             assertTrue(Shizuku.getVersion() >= 13);
+            assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED, Shizuku.checkSelfPermission());
             Shizuku.bindUserService(args, connection);
             assertTrue("UserService handshake failed", await(bound, pkg, true));
             assertNotNull(remote.get());

@@ -5,7 +5,6 @@ import android.app.Application;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.ddm.DdmHandleAppName;
-import android.os.Build;
 import android.os.IBinder;
 import android.os.UserHandle;
 import android.util.Log;

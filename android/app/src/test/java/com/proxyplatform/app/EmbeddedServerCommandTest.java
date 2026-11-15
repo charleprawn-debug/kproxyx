@@ -9,6 +9,7 @@ public class EmbeddedServerCommandTest {
         String command = EmbeddedServerCommand.start("com.proxyplatform.app.debug");
         assertTrue(command.contains("echo $$ >"));
         assertTrue(command.contains("exec /system/bin/app_process"));
+        assertTrue(command.contains("export CLASSPATH=\"$APK\""));
         assertTrue(command.contains("com.proxyplatform.embeddedshizuku.EmbeddedServerMain"));
         assertTrue(command.contains("-Dkproxyx.manager.package=com.proxyplatform.app.debug"));
         assertFalse(command.contains("moe.shizuku.privileged.api"));
