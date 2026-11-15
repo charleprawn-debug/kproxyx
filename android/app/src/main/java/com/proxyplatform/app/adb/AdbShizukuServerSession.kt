@@ -35,10 +35,19 @@ internal class AdbShizukuServerSession private constructor(
             set -eu
             APK=${'$'}(pm path '$packageName' | sed -n 's/^package://p' | head -n 1)
             test -n "${'$'}APK"
+            ABI=${'$'}(getprop ro.product.cpu.abilist | cut -d, -f1)
+            case "${'$'}ABI" in
+                arm64-v8a) ABI_DIR=arm64 ;;
+                armeabi-v7a) ABI_DIR=arm ;;
+                x86_64) ABI_DIR=x86_64 ;;
+                x86) ABI_DIR=x86 ;;
+                *) ABI_DIR=arm64 ;;
+            esac
+            LIB_DIR=${'$'}(dirname "${'$'}APK")/lib/${'$'}ABI_DIR
             LOG=/data/local/tmp/$LOG_BASENAME
             PIDFILE=/data/local/tmp/$PID_BASENAME
             rm -f "${'$'}PIDFILE"
-            exec sh -c 'echo ${'$'}${'$'} > "${'$'}2"; CLASSPATH="${'$'}1"; export CLASSPATH; /system/bin/app_process -Dkproxyx.manager.package=$packageName /system/bin --nice-name=$packageName:shizuku rikka.shizuku.server.ShizukuService; RC=${'$'}?; echo "app_process exit=${'$'}RC" >&2; exit ${'$'}RC' sh "${'$'}APK" "${'$'}PIDFILE" >"${'$'}LOG" 2>&1
+            exec sh -c 'echo ${'$'}${'$'} > "${'$'}2"; /system/bin/app_process -Djava.class.path="${'$'}1" -Dshizuku.library.path="${'$'}3" -Dkproxyx.manager.package=$packageName /system/bin --nice-name=shizuku_server rikka.shizuku.server.ShizukuService; RC=${'$'}?; echo "app_process exit=${'$'}RC" >&2; exit ${'$'}RC' sh "${'$'}APK" "${'$'}PIDFILE" "${'$'}LIB_DIR" >"${'$'}LOG" 2>&1
         """.trimIndent()
         closeServerStream()
         val stream = adb.openPersistentShell(command).getOrThrow()
