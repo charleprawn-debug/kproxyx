@@ -5,6 +5,7 @@ import com.proxyplatform.app.BuildConfig
 import com.proxyplatform.app.EmbeddedAdbManager
 import kotlinx.coroutines.delay
 import rikka.shizuku.Shizuku
+import rikka.shizuku.ShizukuProvider
 
 /**
  * Starts the embedded Shizuku-compatible server as a separate app_process under
@@ -38,6 +39,10 @@ internal class AdbShizukuServerSession private constructor(
             fi
         """.trimIndent()
         val output = adb.execute(command).getOrThrow()
+        // The provider is the official Shizuku hand-off.  Calling this after
+        // app_process has started also covers the case where the provider was
+        // not instantiated when the server's first sendBinder call happened.
+        runCatching { ShizukuProvider.requestBinderForNonProviderProcess(context) }
         check(waitForBinder()) {
             val serverLog = readRemoteLog().getOrDefault("<تعذر قراءة سجل server>")
             "Shizuku server لم يسلّم Binder خلال المهلة. output=$output\n$serverLog"
@@ -52,7 +57,19 @@ internal class AdbShizukuServerSession private constructor(
     fun isReady(): Boolean = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
 
     fun readRemoteLog(): Result<String> = adb.execute(
-        "cat /data/local/tmp/$LOG_BASENAME 2>/dev/null || true"
+        """
+        echo '--- stdout/stderr ---'
+        cat /data/local/tmp/$LOG_BASENAME 2>/dev/null || true
+        echo '--- process ---'
+        if [ -f /data/local/tmp/$PID_BASENAME ]; then
+            P=${'$'}(cat /data/local/tmp/$PID_BASENAME)
+            ps -A -o PID,PPID,UID,NAME,ARGS 2>/dev/null | grep -E "(^|[[:space:]])${'$'}P([[:space:]]|$)|app_process|$LOG_BASENAME" || true
+        fi
+        echo '--- logcat ---'
+        logcat -d -t 300 -v brief \
+          -s ShizukuServer:V ShizukuProvider:V AndroidRuntime:E ActivityManager:E libc:F '*:S' \
+          2>/dev/null || true
+        """.trimIndent()
     )
 
     private suspend fun stopRemoteProcess() {
