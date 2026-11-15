@@ -1,11 +1,6 @@
 package rikka.shizuku.server;
 
-import static android.app.ActivityManagerHidden.UID_OBSERVER_ACTIVE;
-import static android.app.ActivityManagerHidden.UID_OBSERVER_CACHED;
-import static android.app.ActivityManagerHidden.UID_OBSERVER_GONE;
-import static android.app.ActivityManagerHidden.UID_OBSERVER_IDLE;
-
-import android.app.ActivityManagerHidden;
+import android.app.ActivityManager;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -179,17 +174,27 @@ public class BinderSender {
         }
 
         if (Build.VERSION.SDK_INT >= 26) {
-            int flags = UID_OBSERVER_GONE | UID_OBSERVER_IDLE | UID_OBSERVER_ACTIVE;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                flags |= UID_OBSERVER_CACHED;
-            }
             try {
+                // ActivityManagerHidden is a compile-only Refine alias, not an
+                // Android class. Without the Refine transform even reading its
+                // non-inlined static fields crashes server startup. Resolve the
+                // fields on the real framework class instead.
+                int flags = activityManagerInt("UID_OBSERVER_GONE")
+                        | activityManagerInt("UID_OBSERVER_IDLE")
+                        | activityManagerInt("UID_OBSERVER_ACTIVE");
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    flags |= activityManagerInt("UID_OBSERVER_CACHED");
+                }
                 ActivityManagerApis.registerUidObserver(new UidObserver(), flags,
-                        ActivityManagerHidden.PROCESS_STATE_UNKNOWN,
+                        activityManagerInt("PROCESS_STATE_UNKNOWN"),
                         null);
             } catch (Throwable tr) {
                 LOGGER.e(tr, "registerUidObserver");
             }
         }
+    }
+
+    private static int activityManagerInt(String field) throws ReflectiveOperationException {
+        return ActivityManager.class.getDeclaredField(field).getInt(null);
     }
 }

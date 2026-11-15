@@ -11,6 +11,13 @@ indicates SIGKILL; that trace alone does **not** identify who sent it or prove a
 out-of-memory condition. Android's default uncaught-exception handler can also
 kill its own process.
 
+The device integration test reproduced the server crash on both API 30 and 35:
+`NoClassDefFoundError: android.app.ActivityManagerHidden` in
+`BinderSender.register`, before initial Binder delivery. The module does not
+apply Refine's bytecode transform, and those hidden-stub fields were not inlined.
+BinderSender now reads the fields on the real `android.app.ActivityManager`
+framework class, inside its guarded observer-registration block.
+
 Comparison with upstream Shizuku identified independent integration defects:
 
 - The standard client `ShizukuProvider` does not implement the manager's
