@@ -3,7 +3,9 @@ name: Verify and Build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feat/adb-persistent-broadcast-bridge
   pull_request:
     branches: [main]
 

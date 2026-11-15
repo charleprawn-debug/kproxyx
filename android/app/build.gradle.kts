@@ -114,6 +114,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":shizuku-server"))
     implementation(files(layout.buildDirectory.file("gomobile/datapath.aar")))
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")

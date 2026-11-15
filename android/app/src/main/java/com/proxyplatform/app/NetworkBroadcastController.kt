@@ -1,7 +1,7 @@
 package com.proxyplatform.app
 
 import android.content.Context
-import android.os.DeadObjectException
+import com.proxyplatform.app.adb.AdbShizukuServerSession
 import dev.shizzi.TetherClient
 import dev.shizzi.UsbTethering
 import dev.shizzi.VpnMode
@@ -12,21 +12,21 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import org.json.JSONObject
 
-/** Controls the embedded Shizzi session and keeps a diagnostic trace for the broadcast page. */
+/**
+ * Broadcast controller backed by the embedded Shizuku-compatible Binder server.
+ * The old app_process/LocalSocket helper is deliberately not used here.
+ */
 internal object NetworkBroadcastController {
     private const val PREFS = "network_broadcast_diagnostics"
     private const val LOG_KEY = "events"
     private const val MAX_LOG_CHARS = 60_000
 
-    private val client = TetherClient()
     private val controllerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val operationMutex = Mutex()
+    private val tetherClient = TetherClient()
 
-    /**
-     * Run binder work outside the composable's coroutine scope. Leaving the
-     * broadcast page must not cancel a Shizuku start/stop transaction midway.
-     * The mutex also prevents a status poll from racing a start or stop call.
-     */
+    private fun server(context: Context) = AdbShizukuServerSession.get(context)
+
     private suspend fun <T> execute(block: suspend () -> T): T =
         controllerScope.async {
             operationMutex.lock()
@@ -39,96 +39,89 @@ internal object NetworkBroadcastController {
 
     suspend fun start(context: Context): Result<String> = execute {
         runCatching {
-            // With our own VpnService active, the Shizuku UserService runs as
-            // shell and Android already routes shell sockets through that VPN.
-            // Explicitly binding the embedded Shizzi datapath to the same VPN
-            // network creates a nested self-binding path on some Android builds;
-            // the remote UserService then exits and the client only sees
-            // DeadObjectException. NEVER here means "do not call
-            // android_setsocknetwork"; it does not exclude shell from our VPN.
-            // For a third-party VPN, retain Shizzi's normal AUTO behavior.
-            val vpnMode = if (ProxyVpnService.isRunning(context)) {
-                VpnMode.NEVER
-            } else {
-                VpnMode.AUTO
+            require(isServerReady(context) ||
+                WirelessDebuggingManager.checkState(context) == WirelessDebuggingManager.DebuggingState.READY) {
+                "اتصال Wireless ADB غير جاهز. افتح صفحة ADB وأعد الاتصال."
             }
-            appendLog(context, "START requested; using Shizzi UserService lifecycle")
-            appendLog(
-                context,
-                "START binding UserService (vpnMode=${vpnMode.name}, usbTethering=NEVER, " +
-                    "appVpn=${ProxyVpnService.isRunning(context)})",
-            )
-            val raw = client.start(
+            appendLog(context, "START requested; reusing embedded server or launching it through Wireless ADB")
+            server(context).start().getOrThrow()
+            appendLog(context, "Binder READY; binding TetherService through Shizuku UserService")
+            val vpnMode = if (ProxyVpnService.isRunning(context)) VpnMode.NEVER else VpnMode.AUTO
+            val result = tetherClient.start(
                 logging = true,
                 vpnMode = vpnMode,
                 usbTethering = UsbTethering.NEVER,
             )
-            appendResult(context, "START", raw)
-            raw
+            appendResult(context, "START", result)
+            result
         }.onFailure {
             appendFailure(context, "START", it)
-            client.unbindAndStopDaemon()
+            tetherClient.unbindAndStopDaemon()
         }
     }
 
+    fun isServerReady(context: Context): Boolean = server(context).isReady()
+
     suspend fun stop(context: Context): Result<String> = execute {
         runCatching {
-            appendLog(context, "STOP requested")
-            val result = runCatching { client.stop() }
-            result.onSuccess { appendResult(context, "STOP", it) }
-                .onFailure { appendFailure(context, "STOP service call", it) }
-            client.unbindAndStopDaemon()
-            appendLog(context, "STOP UserService daemon released")
-            result.getOrThrow()
-        }.onFailure { failure -> appendFailure(context, "STOP", failure) }
+            appendLog(context, "STOP requested; calling TetherService over Binder")
+            val result = try {
+                if (server(context).isReady()) tetherClient.stop()
+                else JSONObject().put("state", "READY").put("detail", "Stopped").toString()
+            } finally {
+                // A failed RPC must not leave the daemon/hotspot orphaned.
+                tetherClient.unbindAndStopDaemon()
+                server(context).stop().getOrThrow()
+            }
+            appendResult(context, "STOP", result)
+            result
+        }.onFailure { appendFailure(context, "STOP", it) }
     }
 
     suspend fun status(context: Context): Result<String> = execute {
         runCatching {
-            appendLog(context, "STATUS requested")
-            val raw = client.status()
+            if (!server(context).isReady()) {
+                return@runCatching JSONObject().put("state", "READY").put("detail", "Stopped").toString()
+            }
+            val raw = tetherClient.status()
             appendResult(context, "STATUS", raw)
             raw
-        }.onFailure { failure -> appendFailure(context, "STATUS", failure) }
+        }.onFailure { appendFailure(context, "STATUS", it) }
     }
 
     fun logs(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getString(LOG_KEY, "")
         .orEmpty()
 
+    fun diagnostics(context: Context): String {
+        val appLog = AdvancedOperationLog.readLines(context, maxLines = 700).joinToString("\n")
+        val broadcastLog = logs(context)
+        val remoteLog = server(context).readRemoteLog().getOrDefault("<لا يوجد سجل server أو ADB غير متصل>")
+        return buildString {
+            appendLine("===== Broadcast controller / Binder transcript =====")
+            appendLine(broadcastLog.ifBlank { "<لا يوجد سجل عمليات البث>" })
+            appendLine("===== Embedded Shizuku server log (UID shell) =====")
+            appendLine(remoteLog.ifBlank { "<سجل server فارغ>" })
+            appendLine("===== ADB / application transcript =====")
+            append(appLog.ifBlank { "<لا يوجد سجل ADB بعد>" })
+        }.takeLast(MAX_LOG_CHARS)
+    }
+
     fun clearLogs(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(LOG_KEY).apply()
+        AdvancedOperationLog.clear(context)
     }
 
     private fun appendResult(context: Context, operation: String, raw: String) {
-        val parsed = runCatching { JSONObject(raw) }.getOrNull()
-        val state = parsed?.optString("state").orEmpty()
-        val detail = parsed?.optString("detail").orEmpty()
-        appendLog(
-            context,
-            "$operation result: state=${state.ifBlank { "<none>" }}" +
-                if (detail.isBlank()) " raw=$raw" else " detail=$detail",
-        )
+        appendLog(context, "$operation result: $raw")
     }
 
     private fun appendFailure(context: Context, operation: String, failure: Throwable) {
         val chain = generateSequence(failure) { it.cause }
             .map { cause -> "${cause.javaClass.name}: ${cause.message.orEmpty()}" }
             .joinToString(" <- ")
-        val deadBinderHint = if (failure.hasDeadBinder()) {
-            "\nShizuku UserService binder died during $operation; inspect device logcat " +
-                "(ShizukuServiceStarter, AndroidRuntime, libc, TetherService) for the remote-process exit."
-        } else {
-            ""
-        }
-        appendLog(
-            context,
-            "$operation FAILED: $chain$deadBinderHint\n${failure.stackTraceToString().take(8_000)}",
-        )
+        appendLog(context, "$operation FAILED: $chain\n${failure.stackTraceToString().take(8_000)}")
     }
-
-    private fun Throwable.hasDeadBinder(): Boolean =
-        generateSequence(this) { it.cause }.any { it is DeadObjectException }
 
     private fun appendLog(context: Context, line: String) {
         val stamp = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)

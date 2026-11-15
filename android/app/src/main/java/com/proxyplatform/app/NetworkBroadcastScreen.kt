@@ -1,6 +1,5 @@
 package com.proxyplatform.app
 
-import android.os.DeadObjectException
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,45 +47,41 @@ internal fun NetworkBroadcastScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var shizukuStatus by remember { mutableStateOf(ShizukuGate.status()) }
+    var adbState by remember { mutableStateOf(WirelessDebuggingManager.checkState(context)) }
+    var serverReady by remember { mutableStateOf(NetworkBroadcastController.isServerReady(context)) }
     var running by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    val shizukuReady = shizukuStatus is ShizukuStatus.Ready
+    val adbReady = adbState == WirelessDebuggingManager.DebuggingState.READY
     val vpnReady = ProxyVpnService.isRunning(context)
 
     LaunchedEffect(Unit) {
         var checkedOnce = false
         while (true) {
-            shizukuStatus = ShizukuGate.status()
-            if (!busy && shizukuStatus is ShizukuStatus.Ready && (!checkedOnce || running)) {
+            adbState = WirelessDebuggingManager.checkState(context)
+            serverReady = NetworkBroadcastController.isServerReady(context)
+            if (!busy && (!checkedOnce || running || serverReady)) {
                 checkedOnce = true
                 val liveResult = withContext(Dispatchers.IO) { NetworkBroadcastController.status(context) }
                 liveResult.onSuccess { raw ->
                     val parsed = runCatching { JSONObject(raw) }.getOrNull()
                     val state = parsed?.optString("state").orEmpty()
-                    val detail = parsed?.optString("detail").orEmpty()
                     if (state == "ACTIVE") running = true
-                    else if (state == "READY" || state == "ERROR") running = false
-                    if (state == "ERROR" && detail.isNotBlank()) message = detail
+                    else if (state == "READY" || state == "IDLE" || state == "ERROR") running = false
+                    if (state == "ERROR") message = BroadcastUiMessages.operationResult(state, false)
                 }
             }
             delay(2_500)
         }
     }
 
-    fun showFailure(failure: Throwable?) {
-        val remoteServiceDied = generateSequence(failure) { it.cause }
-            .any { it is DeadObjectException }
-        val detail = generateSequence(failure) { it.cause }
-            .mapNotNull { cause -> cause.message?.takeIf { it.isNotBlank() } }
-            .firstOrNull()
-        message = when {
-            remoteServiceDied ->
-                "توقفت عملية خدمة Shizuku أثناء بدء البث. أُعيد ضبط الربط؛ أعد المحاولة، وإذا تكرر الخطأ أرسل سجل Shizuku من الجهاز."
-            detail != null -> detail
-            else -> "تعذر تشغيل جلسة بث الشبكة. تحقق من Shizuku وADB ثم أعد المحاولة."
-        }
+    fun showFailure() {
+        // Do not display exception messages, stack traces, remote JSON detail,
+        // paths, commands, or connection data on the customer-facing screen.
+        message = BroadcastUiMessages.failure(
+            NetworkBroadcastController.isServerReady(context),
+            WirelessDebuggingManager.checkState(context) == WirelessDebuggingManager.DebuggingState.READY,
+        )
     }
 
     LazyColumn(
@@ -98,7 +93,7 @@ internal fun NetworkBroadcastScreen(
             PageHeading(
                 eyebrow = "Kun cloak",
                 title = "بث شبكة",
-                subtitle = "اضغط Start لتشغيل نقطة الاتصال وربطها بالبروكسي تلقائيًا عبر جلسة Shizuku المحمية.",
+                subtitle = "اضغط Start لتشغيل نقطة الاتصال. يُستخدم ADB لإقلاع الخدمة فقط، ثم تعمل بشكل مستقل.",
             )
         }
         item {
@@ -133,7 +128,7 @@ internal fun NetworkBroadcastScreen(
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
-                        if (running) "نقطة الاتصال مربوطة بالبروكسي عبر Shizuku" else "فعّل Shizuku ثم اضغط Start",
+                        if (running) "نقطة الاتصال مربوطة بالبروكسي" else "جهّز الاتصال ثم اضغط Start",
                         color = Color.White.copy(alpha = 0.86f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -148,16 +143,14 @@ internal fun NetworkBroadcastScreen(
             ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("جاهزية البث", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                    StatusRow("Shizuku", shizukuReady, shizukuStatusLabel(shizukuStatus))
+                    StatusRow("Wireless ADB", adbReady, broadcastAdbStateLabel(adbState))
+                    StatusRow("خدمة البث", serverReady, if (serverReady) "جاهزة" else "غير مشغّلة")
                     StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "اختياري")
-                    if (!shizukuReady) {
-                        BroadcastInfoNote("شغّل Shizuku عبر USB أو Root ثم امنح Kun cloak الصلاحية. لا يحتاج بث الشبكة إلى Wireless ADB.", warning = true)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            KUNSecondaryButton("فتح Shizuku", { ShizukuGate.openDownloadPage(context) }, Modifier.weight(1f))
-                            if (shizukuStatus is ShizukuStatus.PermissionRequired) {
-                                KUNSecondaryButton("منح الصلاحية", { ShizukuGate.requestPermission() }, Modifier.weight(1f))
-                            }
-                        }
+                    if (!adbReady && !serverReady) {
+                        BroadcastInfoNote("فعّل Wireless ADB وأكمل الاقتران من صفحة ADB. لا تحتاج صفحة البث إلى تثبيت Shizuku.", warning = true)
+                        KUNSecondaryButton("فتح صفحة ADB", onGoToAdb, Modifier.fillMaxWidth())
+                    } else if (!adbReady) {
+                        BroadcastInfoNote("خادم البث يعمل بشكل مستقل. انقطاع Wireless ADB بعد الإقلاع لا يتطلب إعادة الاقتران.", warning = false)
                     }
                 }
             }
@@ -166,35 +159,28 @@ internal fun NetworkBroadcastScreen(
             KUNPrimaryButton(
                 text = if (running) "إيقاف البث" else "Start",
                 onClick = {
+                    val stopping = running
                     busy = true
                     message = null
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
-                            if (running) NetworkBroadcastController.stop(context) else NetworkBroadcastController.start(context)
+                            if (stopping) NetworkBroadcastController.stop(context) else NetworkBroadcastController.start(context)
                         }
                         result.fold(
                             onSuccess = { raw ->
                                 val state = runCatching { JSONObject(raw).optString("state") }.getOrDefault("")
-                                val detail = runCatching { JSONObject(raw).optString("detail") }
-                                    .getOrDefault(raw)
-                                    .ifBlank { raw }
-                                if (state == "ACTIVE") {
-                                    running = true
-                                    message = "نجح تشغيل البث."
-                                } else if (!running) {
+                                if (state == "ACTIVE") running = true
+                                else if (state == "READY" || state == "IDLE" || state == "ERROR") {
                                     running = false
-                                    message = "لم ينجح تشغيل البث: $detail"
-                                } else {
-                                    running = false
-                                    message = "نجح إيقاف البث."
                                 }
+                                message = BroadcastUiMessages.operationResult(state, stopping)
                             },
-                            onFailure = ::showFailure,
+                            onFailure = { showFailure() },
                         )
                         busy = false
                     }
                 },
-                enabled = shizukuReady,
+                enabled = adbReady || serverReady || running,
                 loading = busy,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
@@ -218,10 +204,13 @@ private fun StatusRow(label: String, ready: Boolean, value: String) {
     }
 }
 
-private fun shizukuStatusLabel(status: ShizukuStatus): String = when (status) {
-    ShizukuStatus.NotRunning -> "غير جاهز"
-    ShizukuStatus.PermissionRequired -> "تحتاج صلاحية"
-    is ShizukuStatus.Ready -> "جاهز"
+private fun broadcastAdbStateLabel(state: WirelessDebuggingManager.DebuggingState): String = when (state) {
+    WirelessDebuggingManager.DebuggingState.READY -> "جاهز"
+    WirelessDebuggingManager.DebuggingState.PAIRED_NOT_CONNECTED -> "مقترن لكن غير متصل"
+    WirelessDebuggingManager.DebuggingState.NOT_PAIRED -> "غير مقترن"
+    WirelessDebuggingManager.DebuggingState.WIRELESS_DISABLED -> "غير مفعّل"
+    WirelessDebuggingManager.DebuggingState.DEVELOPER_DISABLED -> "خيارات المطوّر غير مفعّلة"
+    WirelessDebuggingManager.DebuggingState.UNSUPPORTED_ANDROID_VERSION -> "يتطلب Android 11+"
 }
 
 @Composable
