@@ -31,7 +31,7 @@ public final class EmbeddedServerCommand {
                 + "test -n \"$APK\" && test -r \"$APK\"\n"
                 + "rm -f '" + pidPath(packageName) + "'\n"
                 + "export CLASSPATH=\"$APK\"\n"
-                + "/system/bin/sh -c 'exec /system/bin/app_process -Djava.class.path=\"$CLASSPATH\" "
+                + "/system/bin/sh -c 'cd / && exec /system/bin/app_process -Djava.class.path=\"$CLASSPATH\" "
                 + "-Dshizuku.library.path=\"$(dirname \"$CLASSPATH\")/lib/arm64\" "
                 + "-Dkproxyx.manager.package=" + packageName + " "
                 + "/system/bin --nice-name=" + processName(packageName) + " "

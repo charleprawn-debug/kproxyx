@@ -58,7 +58,8 @@ descriptors. The embedded starter now follows the same isolation:
 
 - Start a non-interactive child which execs app_process, outside the ADB
   process-group-leader role.
-- Call `Os.setsid()` and change to `/` before loading ShizukuService.
+- Change to `/` in the child shell and call `Os.setsid()` before loading
+  ShizukuService.
 - Redirect stdin to `/dev/null` and stdout/stderr to the package-specific log.
 - Write the real PID **after** setsid; wait for that marker before allowing the
   startup ADB command to finish. This prevents teardown racing VM startup.

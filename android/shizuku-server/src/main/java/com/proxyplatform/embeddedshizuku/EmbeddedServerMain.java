@@ -29,7 +29,6 @@ public final class EmbeddedServerMain {
             // vulnerable to adbd's terminal/process-group teardown when Wi-Fi
             // is switched off to enable the hotspot.
             int session = Os.setsid();
-            Os.chdir("/");
             String managerPackage = System.getProperty("kproxyx.manager.package");
             try (FileOutputStream pid = new FileOutputStream(EmbeddedServerCommand.pidPath(managerPackage))) {
                 pid.write(Integer.toString(Process.myPid()).getBytes(StandardCharsets.US_ASCII));

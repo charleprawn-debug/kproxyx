@@ -17,7 +17,7 @@ public class EmbeddedServerCommandTest {
 
     @Test public void launchDetachesDescriptorsAndWaitsForPostSetsidPid() {
         String command = EmbeddedServerCommand.start("com.proxyplatform.app");
-        assertTrue(command.contains("/system/bin/sh -c 'exec"));
+        assertTrue(command.contains("/system/bin/sh -c 'cd / && exec"));
         assertTrue(command.contains("</dev/null >"));
         assertTrue(command.contains("2>&1 &\n"));
         assertTrue(command.contains("umask 077"));
