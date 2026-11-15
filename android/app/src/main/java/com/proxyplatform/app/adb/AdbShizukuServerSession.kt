@@ -38,7 +38,7 @@ internal class AdbShizukuServerSession private constructor(
             LOG=/data/local/tmp/$LOG_BASENAME
             PIDFILE=/data/local/tmp/$PID_BASENAME
             rm -f "${'$'}PIDFILE"
-            exec sh -c 'echo ${'$'}${'$'} > "${'$'}2"; CLASSPATH="${'$'}1"; export CLASSPATH; exec /system/bin/app_process -Dkproxyx.manager.package=$packageName /system/bin --nice-name=$packageName:shizuku rikka.shizuku.server.ShizukuService' sh "${'$'}APK" "${'$'}PIDFILE" >"${'$'}LOG" 2>&1
+            exec sh -c 'echo ${'$'}${'$'} > "${'$'}2"; CLASSPATH="${'$'}1"; export CLASSPATH; /system/bin/app_process -Dkproxyx.manager.package=$packageName /system/bin --nice-name=$packageName:shizuku rikka.shizuku.server.ShizukuService; RC=${'$'}?; echo "app_process exit=${'$'}RC" >&2; exit ${'$'}RC' sh "${'$'}APK" "${'$'}PIDFILE" >"${'$'}LOG" 2>&1
         """.trimIndent()
         closeServerStream()
         val stream = adb.openPersistentShell(command).getOrThrow()
