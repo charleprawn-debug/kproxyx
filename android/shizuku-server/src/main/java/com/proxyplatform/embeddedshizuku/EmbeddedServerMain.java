@@ -1,9 +1,12 @@
 package com.proxyplatform.embeddedshizuku;
 
 import android.os.Process;
+import android.system.Os;
 import android.util.Log;
 
+import java.io.FileOutputStream;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.StandardCharsets;
 
 /** Keep bootstrap/linkage failures visible even before ShizukuService can load. */
 public final class EmbeddedServerMain {
@@ -21,6 +24,17 @@ public final class EmbeddedServerMain {
             if (Process.myUid() != 2000 && Process.myUid() != 0) {
                 throw new SecurityException("Embedded server must be started by ADB shell");
             }
+            // Match the upstream native starter's independent session. Merely
+            // backgrounding app_process (or retaining its ADB stream) leaves it
+            // vulnerable to adbd's terminal/process-group teardown when Wi-Fi
+            // is switched off to enable the hotspot.
+            int session = Os.setsid();
+            Os.chdir("/");
+            String managerPackage = System.getProperty("kproxyx.manager.package");
+            try (FileOutputStream pid = new FileOutputStream(EmbeddedServerCommand.pidPath(managerPackage))) {
+                pid.write(Integer.toString(Process.myPid()).getBytes(StandardCharsets.US_ASCII));
+            }
+            System.err.println(TAG + ": detached session=" + session + " pid=" + Process.myPid());
             // Reflection is intentional: resolving the server's superclass can
             // fail before its main() runs. Catch that failure here, not in it.
             Class.forName("rikka.shizuku.server.ShizukuService")

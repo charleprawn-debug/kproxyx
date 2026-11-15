@@ -39,10 +39,11 @@ internal object NetworkBroadcastController {
 
     suspend fun start(context: Context): Result<String> = execute {
         runCatching {
-            require(WirelessDebuggingManager.checkState(context) == WirelessDebuggingManager.DebuggingState.READY) {
+            require(isServerReady(context) ||
+                WirelessDebuggingManager.checkState(context) == WirelessDebuggingManager.DebuggingState.READY) {
                 "اتصال Wireless ADB غير جاهز. افتح صفحة ADB وأعد الاتصال."
             }
-            appendLog(context, "START requested; launching embedded Shizuku server through Wireless ADB")
+            appendLog(context, "START requested; reusing embedded server or launching it through Wireless ADB")
             server(context).start().getOrThrow()
             appendLog(context, "Binder READY; binding TetherService through Shizuku UserService")
             val vpnMode = if (ProxyVpnService.isRunning(context)) VpnMode.NEVER else VpnMode.AUTO
@@ -58,6 +59,8 @@ internal object NetworkBroadcastController {
             tetherClient.unbindAndStopDaemon()
         }
     }
+
+    fun isServerReady(context: Context): Boolean = server(context).isReady()
 
     suspend fun stop(context: Context): Result<String> = execute {
         runCatching {

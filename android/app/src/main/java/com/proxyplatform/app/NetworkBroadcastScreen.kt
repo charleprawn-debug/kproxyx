@@ -54,6 +54,7 @@ internal fun NetworkBroadcastScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var adbState by remember { mutableStateOf(WirelessDebuggingManager.checkState(context)) }
+    var serverReady by remember { mutableStateOf(NetworkBroadcastController.isServerReady(context)) }
     var running by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -66,8 +67,9 @@ internal fun NetworkBroadcastScreen(
         var checkedOnce = false
         while (true) {
             adbState = WirelessDebuggingManager.checkState(context)
+            serverReady = NetworkBroadcastController.isServerReady(context)
             terminalText = withContext(Dispatchers.IO) { NetworkBroadcastController.diagnostics(context) }
-            if (!busy && adbReady && (!checkedOnce || running)) {
+            if (!busy && (!checkedOnce || running || serverReady)) {
                 checkedOnce = true
                 val liveResult = withContext(Dispatchers.IO) { NetworkBroadcastController.status(context) }
                 liveResult.onSuccess { raw ->
@@ -89,7 +91,7 @@ internal fun NetworkBroadcastScreen(
             .firstOrNull()
         message = when {
             detail != null -> detail
-            else -> "تعذر تشغيل جلسة بث الشبكة. تحقق من اتصال Wireless ADB ثم أعد المحاولة."
+            else -> "تعذر تنفيذ أمر البث. راجع سجل Terminal لمعرفة سبب توقف الخدمة."
         }
     }
 
@@ -102,7 +104,7 @@ internal fun NetworkBroadcastScreen(
             PageHeading(
                 eyebrow = "Kun cloak",
                 title = "بث شبكة",
-                subtitle = "اضغط Start لتشغيل نقطة الاتصال وربطها بالبروكسي عبر جلسة ADB مستمرة.",
+                subtitle = "اضغط Start لتشغيل نقطة الاتصال. يُستخدم ADB لإقلاع الخدمة فقط، ثم تعمل بشكل مستقل.",
             )
         }
         item {
@@ -153,10 +155,13 @@ internal fun NetworkBroadcastScreen(
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("جاهزية البث", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                     StatusRow("Wireless ADB", adbReady, broadcastAdbStateLabel(adbState))
+                    StatusRow("خادم البث المدمج", serverReady, if (serverReady) "جاهز عبر Binder" else "غير مشغّل")
                     StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "اختياري")
-                    if (!adbReady) {
+                    if (!adbReady && !serverReady) {
                         BroadcastInfoNote("فعّل Wireless ADB وأكمل الاقتران من صفحة ADB. لا تحتاج صفحة البث إلى تثبيت Shizuku.", warning = true)
                         KUNSecondaryButton("فتح صفحة ADB", onGoToAdb, Modifier.fillMaxWidth())
+                    } else if (!adbReady) {
+                        BroadcastInfoNote("خادم البث يعمل بشكل مستقل. انقطاع Wireless ADB بعد الإقلاع لا يتطلب إعادة الاقتران.", warning = false)
                     }
                 }
             }
@@ -194,7 +199,7 @@ internal fun NetworkBroadcastScreen(
                         busy = false
                     }
                 },
-                enabled = adbReady || running,
+                enabled = adbReady || serverReady || running,
                 loading = busy,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )

@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import rikka.shizuku.Shizuku;
 import rikka.shizuku.ShizukuApiConstants;
+import moe.shizuku.server.IShizukuService;
 
 /** Real shell UID, app_process, provider, and UserService; no external Shizuku. */
 @RunWith(AndroidJUnit4.class)
@@ -89,7 +90,26 @@ public class EmbeddedServerIntegrationTest {
             Thread.sleep(1_500); // Allow adbd's terminal teardown/death notification to propagate.
             assertTrue("Server died when the startup ADB channel closed", Shizuku.pingBinder());
             assertEcho(remote.get());
+            // Same permission-checked path as offline diagnostics in the app.
+            moe.shizuku.server.IRemoteProcess diagnostic = IShizukuService.Stub.asInterface(Shizuku.getBinder())
+                    .newProcess(new String[]{"/system/bin/sh", "-c", "echo binder-diagnostics-ok"}, null, null);
+            try (FileInputStream input = new ParcelFileDescriptor.AutoCloseInputStream(diagnostic.getInputStream())) {
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                byte[] buffer = new byte[256];
+                int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                assertTrue(output.toString("UTF-8").contains("binder-diagnostics-ok"));
+            } finally {
+                diagnostic.destroy();
+            }
             Log.i("KProxyXShizukuTest", "Server and UserService RPC survived ADB channel disconnect");
+            try { Shizuku.exit(); } catch (Throwable ignored) {}
+            long stopDeadline = android.os.SystemClock.elapsedRealtime() + 5_000;
+            while (Shizuku.pingBinder() && android.os.SystemClock.elapsedRealtime() < stopDeadline) {
+                Thread.sleep(100);
+            }
+            assertFalse("Server must stop over Binder without the startup ADB channel", Shizuku.pingBinder());
+            Log.i("KProxyXShizukuTest", "Explicit Binder stop verified after ADB channel disconnect");
         } finally {
             Shizuku.removeBinderReceivedListener(listener);
             try { Shizuku.unbindUserService(args, connection, true); } catch (Throwable ignored) {}

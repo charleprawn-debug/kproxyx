@@ -5,14 +5,9 @@ import android.annotation.SuppressLint
 import com.proxyplatform.app.BuildConfig
 import com.proxyplatform.app.EmbeddedAdbManager
 import com.proxyplatform.embeddedshizuku.EmbeddedServerCommand
-import io.github.muntashirakon.adb.AdbStream
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import android.os.ParcelFileDescriptor
+import moe.shizuku.server.IShizukuService
 import rikka.shizuku.Shizuku
 
 /**
@@ -24,10 +19,6 @@ internal class AdbShizukuServerSession private constructor(
     private val context: Context,
 ) {
     private val adb get() = EmbeddedAdbManager.get(context)
-    private val serverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    @Volatile private var serverStream: AdbStream? = null
-    @Volatile private var serverReaderJob: Job? = null
-    @Volatile private var streamEnded = false
 
     suspend fun start(): Result<Unit> = runCatching {
         // Reuse a live server; restarting it here would destroy an active
@@ -37,27 +28,14 @@ internal class AdbShizukuServerSession private constructor(
         stopRemoteProcess()
         val packageName = BuildConfig.APPLICATION_ID
         val command = EmbeddedServerCommand.start(packageName)
-        closeServerStream()
-        streamEnded = false
-        val stream = adb.openPersistentShell(command).getOrThrow()
-        serverStream = stream
-        serverReaderJob = serverScope.launch {
-            val buffer = ByteArray(4096)
-            try {
-                while (isActive && stream.read(buffer, 0, buffer.size) >= 0) Unit
-            } catch (_: Throwable) {
-                // The stream normally ends when the server is stopped.
-            } finally {
-                if (serverStream === stream) streamEnded = true
-            }
+        val launch = adb.execute(command).getOrThrow()
+        check(launch.contains("Embedded server detached; pid=")) {
+            "تعذر فصل السيرفر عن جلسة ADB:\n$launch"
         }
-        check(waitForBinder(stopWhenStreamEnds = true)) {
+        check(waitForBinder()) {
             val serverLog = readRemoteLog().getOrDefault("<تعذر قراءة سجل server>")
-            val reason = if (streamEnded) "انتهت عملية السيرفر قبل تسليم Binder" else "انتهت مهلة انتظار Binder"
-            "$reason\n$serverLog"
+            "انتهت مهلة انتظار Binder\n$serverLog"
         }
-    }.onFailure {
-        closeServerStream()
     }
 
     suspend fun stop(): Result<Unit> = runCatching {
@@ -67,8 +45,8 @@ internal class AdbShizukuServerSession private constructor(
 
     fun isReady(): Boolean = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
 
-    fun readRemoteLog(): Result<String> = adb.execute(
-        """
+    fun readRemoteLog(): Result<String> {
+        val command = """
         echo '--- stdout/stderr ---'
         cat '${EmbeddedServerCommand.logPath(BuildConfig.APPLICATION_ID)}' 2>/dev/null || true
         echo '--- UserService ---'
@@ -80,28 +58,46 @@ internal class AdbShizukuServerSession private constructor(
           -s KProxyXShizuku:V Service:V ShizukuServiceStarter:V UserServiceManager:V ShizukuProvider:V AndroidRuntime:E libc:F '*:S' \
           2>/dev/null || true
         """.trimIndent()
-    )
+        // Binder stays available after Wireless ADB disappears. Use the
+        // embedded server's existing, permission-checked process API to read
+        // diagnostics without reconnecting Wi-Fi or requiring external apps.
+        val result = if (isReady()) runCatching {
+            val process = IShizukuService.Stub.asInterface(Shizuku.getBinder())
+                .newProcess(arrayOf("/system/bin/sh", "-c", command), null, null)
+            try {
+                ParcelFileDescriptor.AutoCloseInputStream(process.inputStream)
+                    .bufferedReader().use { it.readText() }
+            } finally {
+                runCatching { process.destroy() }
+            }
+        } else adb.execute(command)
+        val prefs = context.getSharedPreferences("embedded_server_diagnostics", Context.MODE_PRIVATE)
+        result.getOrNull()?.takeIf { it.isNotBlank() }?.let {
+            prefs.edit().putString("last_log", it).apply()
+        }
+        return result.recoverCatching {
+            val cached = prefs.getString("last_log", "").orEmpty()
+            check(cached.isNotBlank()) { "السيرفر وADB غير متاحين لقراءة السجل" }
+            "--- آخر سجل محفوظ؛ تعذر الاتصال بالسيرفر وADB حالياً ---\n$cached"
+        }
+    }
 
     // This application intentionally implements Shizuku's manager role.
     @SuppressLint("RestrictedApi")
     private suspend fun stopRemoteProcess() {
-        if (isReady()) runCatching { Shizuku.exit() }
+        if (isReady()) {
+            runCatching { Shizuku.exit() }
+            // exit() can close the Binder before replying. Its death, rather
+            // than the RPC result or a stale ADB connection flag, proves stop.
+            if (waitForBinder(expected = false)) return
+        }
         if (adb.isConnected()) adb.execute(EmbeddedServerCommand.stop(BuildConfig.APPLICATION_ID)).getOrThrow()
-        closeServerStream()
         waitForBinder(expected = false)
     }
 
-    private fun closeServerStream() {
-        serverReaderJob?.cancel()
-        serverReaderJob = null
-        runCatching { serverStream?.close() }
-        serverStream = null
-    }
-
-    private suspend fun waitForBinder(expected: Boolean = true, stopWhenStreamEnds: Boolean = false): Boolean {
+    private suspend fun waitForBinder(expected: Boolean = true): Boolean {
         repeat(BINDER_WAIT_ATTEMPTS) {
             if (isReady() == expected) return true
-            if (expected && stopWhenStreamEnds && streamEnded) return false
             delay(BINDER_WAIT_DELAY_MS)
         }
         return isReady() == expected

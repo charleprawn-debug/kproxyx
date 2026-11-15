@@ -7,7 +7,7 @@ import static org.junit.Assert.*;
 public class EmbeddedServerCommandTest {
     @Test public void launchUsesBootstrapAndExactPid() {
         String command = EmbeddedServerCommand.start("com.proxyplatform.app.debug");
-        assertTrue(command.contains("echo $$ >"));
+        assertTrue(command.contains("P=$!"));
         assertTrue(command.contains("exec /system/bin/app_process"));
         assertTrue(command.contains("export CLASSPATH=\"$APK\""));
         assertTrue(command.contains("com.proxyplatform.embeddedshizuku.EmbeddedServerMain"));
@@ -15,6 +15,16 @@ public class EmbeddedServerCommandTest {
         assertFalse(command.contains("moe.shizuku.privileged.api"));
     }
 
+    @Test public void launchDetachesDescriptorsAndWaitsForPostSetsidPid() {
+        String command = EmbeddedServerCommand.start("com.proxyplatform.app");
+        assertTrue(command.contains("/system/bin/sh -c 'exec"));
+        assertTrue(command.contains("</dev/null >"));
+        assertTrue(command.contains("2>&1 &\n"));
+        assertTrue(command.contains("umask 077"));
+        assertTrue(command.contains("while [ \"$(cat '"));
+        assertTrue(command.contains("!= \"$P\" ]"));
+        assertTrue(command.contains("\"$I\" -ge 50"));
+    }
     @Test public void debugAndReleaseDoNotShareStateOrProcesses() {
         String release = "com.proxyplatform.app";
         String debug = release + ".debug";

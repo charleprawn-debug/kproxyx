@@ -7,7 +7,7 @@ adb shell rm -f "$TRANSPORT.command" "$TRANSPORT.ready" "$TRANSPORT.closed"
 (
     CLIENT=
     trap 'if [[ -n "$CLIENT" ]]; then kill "$CLIENT" 2>/dev/null; fi' EXIT
-    for ((i=0; i<240; i++)); do
+    for ((i=0; i<720; i++)); do
         adb shell test -f "$TRANSPORT.command" && break
         sleep 0.5
     done
