@@ -65,7 +65,8 @@ public class EmbeddedServerIntegrationTest {
         try {
             // The host runs this exact production command through a real adbd
             // PTY, then disconnects that channel while both Binders are live.
-            shell("echo '" + encodedCommand + "' | base64 -d > " + transport + ".command");
+            shell("echo '" + encodedCommand + "' | base64 -d > " + transport + ".tmp && mv "
+                    + transport + ".tmp " + transport + ".command");
             Log.i("KProxyXShizukuTest", "waiting for server Binder");
             assertTrue("Server startup failed", await(ready, pkg, false));
             Log.i("KProxyXShizukuTest", "server Binder received");
