@@ -3,7 +3,14 @@ package com.proxyplatform.app.adb
 import android.content.Context
 import com.proxyplatform.app.BuildConfig
 import com.proxyplatform.app.EmbeddedAdbManager
+import io.github.muntashirakon.adb.AdbStream
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuProvider
 
@@ -16,6 +23,9 @@ internal class AdbShizukuServerSession private constructor(
     private val context: Context,
 ) {
     private val adb get() = EmbeddedAdbManager.get(context)
+    private val serverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var serverStream: AdbStream? = null
+    @Volatile private var serverReaderJob: Job? = null
 
     suspend fun start(): Result<Unit> = runCatching {
         check(adb.isConnected()) { "Wireless ADB غير متصل" }
@@ -28,24 +38,27 @@ internal class AdbShizukuServerSession private constructor(
             LOG=/data/local/tmp/$LOG_BASENAME
             PIDFILE=/data/local/tmp/$PID_BASENAME
             rm -f "${'$'}PIDFILE"
-            command -v setsid >/dev/null 2>&1
-            setsid sh -c 'CLASSPATH="${'$'}1"; export CLASSPATH; exec /system/bin/app_process -Dkproxyx.manager.package=$packageName /system/bin --nice-name=$packageName:shizuku rikka.shizuku.server.ShizukuService' sh "${'$'}APK" >"${'$'}LOG" 2>&1 &
-            echo ${'$'}! >"${'$'}PIDFILE"
-            sleep 1
-            if ! kill -0 ${'$'}(cat "${'$'}PIDFILE") 2>/dev/null; then
-                echo "server process exited; pid=${'$'}(cat "${'$'}PIDFILE")"
-                cat "${'$'}LOG" 2>/dev/null || true
-                exit 1
-            fi
+            exec sh -c 'echo ${'$'}${'$'} > "${'$'}1"; CLASSPATH="${'$'}1"; export CLASSPATH; exec /system/bin/app_process -Dkproxyx.manager.package=$packageName /system/bin --nice-name=$packageName:shizuku rikka.shizuku.server.ShizukuService' sh "${'$'}APK" >"${'$'}LOG" 2>&1
         """.trimIndent()
-        val output = adb.execute(command).getOrThrow()
+        closeServerStream()
+        val stream = adb.openPersistentShell(command).getOrThrow()
+        serverStream = stream
+        serverReaderJob = serverScope.launch {
+            val buffer = ByteArray(4096)
+            try {
+                while (isActive && stream.read(buffer, 0, buffer.size) >= 0) Unit
+            } catch (_: Throwable) {
+                // The stream normally ends when the server is stopped.
+            }
+        }
+        delay(1000)
         // The provider is the official Shizuku hand-off.  Calling this after
         // app_process has started also covers the case where the provider was
         // not instantiated when the server's first sendBinder call happened.
         runCatching { ShizukuProvider.requestBinderForNonProviderProcess(context) }
         check(waitForBinder()) {
             val serverLog = readRemoteLog().getOrDefault("<تعذر قراءة سجل server>")
-            "Shizuku server لم يسلّم Binder خلال المهلة. output=$output\n$serverLog"
+            "Shizuku server لم يسلّم Binder خلال المهلة. persistent shell open\n$serverLog"
         }
     }
 
@@ -73,10 +86,18 @@ internal class AdbShizukuServerSession private constructor(
     )
 
     private suspend fun stopRemoteProcess() {
+        closeServerStream()
         adb.execute(
             "if [ -f /data/local/tmp/$PID_BASENAME ]; then kill ${'$'}(cat /data/local/tmp/$PID_BASENAME) 2>/dev/null || true; fi; rm -f /data/local/tmp/$PID_BASENAME"
         )
         waitForBinder(expected = false)
+    }
+
+    private fun closeServerStream() {
+        serverReaderJob?.cancel()
+        serverReaderJob = null
+        runCatching { serverStream?.close() }
+        serverStream = null
     }
 
     private suspend fun waitForBinder(expected: Boolean = true): Boolean {

@@ -88,6 +88,12 @@ class EmbeddedAdbManager private constructor(private val context: Context) {
         }
     }
 
+    /** Opens a shell owned by the caller for the lifetime of a server process. */
+    fun openPersistentShell(command: String): Result<AdbStream> = runCatching {
+        check(connection.isConnected()) { "ADB غير متصل" }
+        connection.openStream("shell:$command")
+    }
+
     fun isConnected(): Boolean = connection.isConnected()
 
     fun wasPaired(): Boolean = context.getSharedPreferences(PAIRING_PREFS, Context.MODE_PRIVATE)
