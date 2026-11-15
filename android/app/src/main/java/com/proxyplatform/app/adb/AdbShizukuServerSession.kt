@@ -27,10 +27,15 @@ internal class AdbShizukuServerSession private constructor(
             LOG=/data/local/tmp/$LOG_BASENAME
             PIDFILE=/data/local/tmp/$PID_BASENAME
             rm -f "${'$'}PIDFILE"
-            nohup sh -c "CLASSPATH=${'$'}APK app_process -Dkproxyx.manager.package=$packageName /system/bin --nice-name=$packageName:shizuku rikka.shizuku.server.ShizukuService" >"${'$'}LOG" 2>&1 &
+            command -v setsid >/dev/null 2>&1
+            setsid sh -c 'CLASSPATH="${'$'}1"; export CLASSPATH; exec /system/bin/app_process -Dkproxyx.manager.package=$packageName /system/bin --nice-name=$packageName:shizuku rikka.shizuku.server.ShizukuService' sh "${'$'}APK" >"${'$'}LOG" 2>&1 &
             echo ${'$'}! >"${'$'}PIDFILE"
             sleep 1
-            kill -0 ${'$'}(cat "${'$'}PIDFILE")
+            if ! kill -0 ${'$'}(cat "${'$'}PIDFILE") 2>/dev/null; then
+                echo "server process exited; pid=${'$'}(cat "${'$'}PIDFILE")"
+                cat "${'$'}LOG" 2>/dev/null || true
+                exit 1
+            fi
         """.trimIndent()
         val output = adb.execute(command).getOrThrow()
         check(waitForBinder()) {
