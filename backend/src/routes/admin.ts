@@ -140,7 +140,14 @@ router.get('/users/:id/wallet', async (req, res) => {
 
 router.get('/users/:id/activity', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('user_activity_logs').select('id,action,entity_type,entity_id,metadata,created_at').eq('user_id', req.params.id).order('created_at', { ascending: false }).limit(200);
-  if (error) return res.status(500).json({ error: { code: 'USER_ACTIVITY_UNAVAILABLE', message: 'تعذر تحميل سجلات المستخدم.' } });
+  // Older installations may not have applied migration 14 yet. Keep the admin
+  // screen usable while the migration is pending; new installations still get
+  // the full activity history from user_activity_logs.
+  if (error) {
+    const missingActivityTable = error.code === 'PGRST205' || error.message?.includes('user_activity_logs');
+    if (missingActivityTable) return res.json({ data: [] });
+    return res.status(500).json({ error: { code: 'USER_ACTIVITY_UNAVAILABLE', message: 'تعذر تحميل سجلات المستخدم.' } });
+  }
   return res.json({ data: data ?? [] });
 });
 
