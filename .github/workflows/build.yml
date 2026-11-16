@@ -10,7 +10,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   api-smoke:
@@ -118,3 +118,23 @@ jobs:
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Publish APKs as GitHub Release fallback
+        if: always() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          debug_apk="app/build/outputs/apk/debug/app-debug.apk"
+          release_apk="app/build/outputs/apk/release/app-release.apk"
+          files=()
+          [ -f "$debug_apk" ] && files+=("$debug_apk")
+          [ -f "$release_apk" ] && files+=("$release_apk")
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo 'No APK was produced; nothing to publish.'
+            exit 0
+          fi
+          tag="ci-build-${GITHUB_RUN_ID}"
+          gh release create "$tag" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "APK build ${GITHUB_RUN_NUMBER}" \
+            --notes "APK files produced by GitHub Actions run ${GITHUB_RUN_ID}."
