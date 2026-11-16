@@ -899,7 +899,8 @@ class MainActivity : ComponentActivity() {
     var mode by remember(vpnAllowed, advancedAllowed) {
         mutableStateOf(
             when {
-                (ProxyLocalService.isRunning(context) || AdvancedSystemProxy.hasPendingRestore(context)) && advancedAllowed -> "advanced"
+                (ProxyLocalService.isRunning(context) || AdvancedSystemProxy.hasPendingRestore(context) ||
+                    RootWebRtcController.hasPendingRestore(context)) && advancedAllowed -> "advanced"
                 vpnAllowed -> "vpn"
                 advancedAllowed -> "advanced"
                 else -> "vpn"
@@ -924,6 +925,10 @@ class MainActivity : ComponentActivity() {
     var checkingEndpoint by remember { mutableStateOf(false) }
     var stopping by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var highProtection by remember { mutableStateOf(RootWebRtcController.isEnabled(context)) }
+    var rootAvailable by remember { mutableStateOf(false) }
+    var rootBusy by remember { mutableStateOf(false) }
+    var firewallPending by remember { mutableStateOf(RootWebRtcController.hasPendingRestore(context)) }
     var mockLocation by remember {
         mutableStateOf(
             context.getSharedPreferences("mock_location_options", Context.MODE_PRIVATE)
@@ -973,6 +978,43 @@ class MainActivity : ComponentActivity() {
     }
 
     val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        // A killed process cannot run onDestroy. Keep the journal until cleanup succeeds.
+        if (RootWebRtcController.hasPendingRestore(context) &&
+            !withContext(Dispatchers.IO) { ProxyLocalService.isListenerReady(context) }) {
+            val result = withContext(Dispatchers.IO) { RootWebRtcController.restore(context) }
+            if (result.isFailure) error = "تحتاج حماية جلسة سابقة إلى استعادة: ${result.exceptionOrNull()?.message}"
+        }
+        while (true) {
+            rootAvailable = withContext(Dispatchers.IO) { RootWebRtcController.isRootAvailable() }
+            firewallPending = RootWebRtcController.hasPendingRestore(context)
+            delay(2000)
+        }
+    }
+
+    fun toggleHighProtection() {
+        if (rootBusy || running || starting || stopping || checkingEndpoint) return
+        rootBusy = true
+        error = null
+        coroutineScope.launch {
+            val enabling = !highProtection
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (enabling) RootWebRtcController.requestRoot().getOrThrow()
+                    else RootWebRtcController.restore(context).getOrThrow()
+                    RootWebRtcController.setEnabled(context, enabling)
+                }
+            }
+            if (result.isSuccess) {
+                highProtection = enabling
+                if (enabling) rootAvailable = true
+            } else {
+                error = "تعذر تغيير الحماية العالية: ${result.exceptionOrNull()?.message}"
+            }
+            rootBusy = false
+        }
+    }
 
     val mockLocationSettingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -1264,7 +1306,7 @@ class MainActivity : ComponentActivity() {
         ProxyLocalService.clearLastError(context)
         runCatching {
             AdvancedOperationLog.info(context, "إرسال طلب تشغيل خدمة البروكسي المحلي إلى Android.")
-            startLocalProxyService(context, protocol, host, port, username, password, false, allowUdp)
+            startLocalProxyService(context, protocol, host, port, username, password, highProtection, allowUdp && !highProtection)
         }.onFailure {
             AdvancedOperationLog.exception(context, "تعذر إرسال طلب تشغيل خدمة البروكسي", it)
             starting = false
@@ -1277,9 +1319,9 @@ class MainActivity : ComponentActivity() {
         // enough to tell the user that device traffic is actually routed.
         coroutineScope.launch {
             val setupResult = withContext(Dispatchers.IO) {
-                AdvancedOperationLog.info(context, "انتظار بدء الخدمة واستجابة المنفذ المحلي (مهلة 10 ثوانٍ).")
+                AdvancedOperationLog.info(context, "انتظار الخدمة والمنفذ المحلي، مع مهلة إضافية لصلاحية الروت عند تفعيل الحماية.")
                 var ready = false
-                for (attempt in 0 until 40) {
+                for (attempt in 0 until (if (highProtection) 240 else 40)) {
                     if (ProxyLocalService.isRunning(context) && ProxyLocalService.isListenerReady(context)) {
                         ready = true
                         break
@@ -1335,7 +1377,9 @@ class MainActivity : ComponentActivity() {
                     val proxyRestore = if (AdvancedSystemProxy.hasPendingRestore(context)) {
                         AdvancedSystemProxy.restore(context, "127.0.0.1:${ProxyLocalService.localPort(context)}")
                     } else Result.success(Unit)
-                    if (languageRestore.isFailure) languageRestore else if (timezoneRestore.isFailure) timezoneRestore else proxyRestore
+                    val firewallRestore = RootWebRtcController.restore(context)
+                    if (languageRestore.isFailure) languageRestore else if (timezoneRestore.isFailure) timezoneRestore
+                    else if (proxyRestore.isFailure) proxyRestore else firewallRestore
                 }
                 if (restoreResult.isSuccess) {
                     AdvancedOperationLog.info(context, "اكتملت معالجة الاستعادة؛ إيقاف الخدمة المحلية.")
@@ -1377,10 +1421,14 @@ class MainActivity : ComponentActivity() {
         coroutineScope.launch(Dispatchers.IO) {
             val languageRestore = AdvancedProxyLanguageController.restore(context)
             val timezoneRestore = AdvancedProxyTimezoneController.restore(context)
-            val restoreResult = if (languageRestore.isSuccess && timezoneRestore.isSuccess) {
+            val proxyRestore = if (languageRestore.isSuccess && timezoneRestore.isSuccess) {
                 AdvancedSystemProxy.restore(context, expectedProxy)
             } else if (languageRestore.isFailure) languageRestore else timezoneRestore
+            // Restore even when ADB is unavailable; do not strand a device-wide firewall.
+            val firewallRestore = RootWebRtcController.restore(context)
+            val restoreResult = if (proxyRestore.isFailure) proxyRestore else firewallRestore
             withContext(Dispatchers.Main) {
+                firewallPending = RootWebRtcController.hasPendingRestore(context)
                 stopping = false
                 if (restoreResult.isSuccess) {
                     AdvancedOperationLog.output(context, "استُعيدت لغة الهاتف والمنطقة الزمنية والبروكسي؛ جارٍ إيقاف خدمة البروكسي المحلي.")
@@ -1523,16 +1571,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    if (featureTab == "connection" && mode == "advanced" && !wirelessReady) {
-        AdbRequiredPanel(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            title = "البروكسي المتقدم",
-            description = "اتصل عبر صفحة ADB للمتابعة.",
-            onGoToAdb = onGoToAdb,
-        )
-        return
-    }
-
     Box(Modifier.fillMaxSize().padding(padding)) {
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -1549,11 +1587,17 @@ class MainActivity : ComponentActivity() {
             // ── Connection mode ────────────────────────────────────────────────────
 
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                if (mode == "advanced" && !wirelessReady) AdbRequiredPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    title = "البروكسي المتقدم",
+                    description = "اتصل عبر صفحة ADB لبدء البروكسي. استعادة الحماية السابقة متاحة دون ADB.",
+                    onGoToAdb = onGoToAdb,
+                )
                 Text("طريقة الاتصال", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 if (vpnAllowed && advancedAllowed) {
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        ModeOptionCard("VPN", "اتصال آمن", mode == "vpn", !running && !starting && !checkingEndpoint, Modifier.weight(1f)) { mode = "vpn"; error = null }
-                        ModeOptionCard("متقدم", "بروكسي النظام عبر ADB", mode == "advanced", !running && !starting && !checkingEndpoint, Modifier.weight(1f)) { mode = "advanced"; error = null }
+                        ModeOptionCard("VPN", "اتصال آمن", mode == "vpn", !running && !starting && !checkingEndpoint && !rootBusy && !firewallPending, Modifier.weight(1f)) { mode = "vpn"; error = null }
+                        ModeOptionCard("متقدم", "بروكسي النظام عبر ADB", mode == "advanced", !running && !starting && !checkingEndpoint && !rootBusy, Modifier.weight(1f)) { mode = "advanced"; error = null }
                     }
                 } else if (vpnAllowed) {
                     ModeOptionCard("VPN", "اتصال آمن", true, !running && !starting && !checkingEndpoint, Modifier.fillMaxWidth()) { mode = "vpn"; error = null }
@@ -1574,6 +1618,59 @@ class MainActivity : ComponentActivity() {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
+                }
+            }
+        }
+
+        if (featureTab == "connection" && mode == "advanced") item {
+            KUNCard {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = ::toggleHighProtection,
+                            enabled = (rootAvailable || highProtection) && !rootBusy && !running &&
+                                !starting && !stopping && !checkingEndpoint,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 4.dp),
+                        ) {
+                            if (rootBusy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text(if (highProtection) "حماية عالية — مفعّلة" else "حماية عالية", Modifier.padding(horizontal = 8.dp))
+                        }
+                        Box(Modifier.align(Alignment.TopEnd).size(10.dp)
+                            .background(if (rootAvailable) SuccessGreen else MaterialTheme.colorScheme.error, CircleShape))
+                    }
+                    Text(
+                        if (rootAvailable) "الروت متاح — تُطلب الصلاحية عند التفعيل."
+                        else "الروت غير مكتشف — متاحة للهواتف المروّتة فقط.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (rootAvailable) SuccessGreen else MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        "تعمل الحماية عند بدء البروكسي فقط، وتُزال عند إيقافه. تمنع UDP والاتصال المباشر عبر TCP خارج البروكسي على IPv4 وIPv6. قد تتوقف المكالمات والألعاب والتطبيقات التي تتجاهل بروكسي النظام.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        when {
+                            firewallPending && running -> "الحماية الشبكية نشطة."
+                            firewallPending -> "توجد قواعد حماية تحتاج إلى استعادة."
+                            highProtection -> "جاهزة للاتصال التالي؛ لا توجد قواعد حماية نشطة الآن."
+                            else -> "الحماية غير مفعّلة."
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    if (firewallPending && !running && !starting) OutlinedButton(
+                        enabled = !rootBusy && !stopping,
+                        onClick = {
+                            rootBusy = true
+                            coroutineScope.launch {
+                                val result = withContext(Dispatchers.IO) { RootWebRtcController.restore(context) }
+                                firewallPending = RootWebRtcController.hasPendingRestore(context)
+                                error = result.exceptionOrNull()?.let { "تعذرت استعادة الشبكة: ${it.message}" }
+                                rootBusy = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("استعادة الشبكة وإزالة الحماية السابقة") }
                 }
             }
         }
@@ -1637,7 +1734,7 @@ class MainActivity : ComponentActivity() {
 
         if (mode == "advanced" && !running && !starting &&
             (AdvancedSystemProxy.hasPendingRestore(context) ||
-                AdvancedProxyTimezoneController.hasPendingRestore(context))
+                AdvancedProxyTimezoneController.hasPendingRestore(context) || firewallPending)
         ) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("جلسة سابقة تحتاج إلى استعادة الإعدادات.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1680,7 +1777,7 @@ class MainActivity : ComponentActivity() {
             }
             Button(
                 onClick = { if (running) stopProxy() else requestStart() },
-                enabled = if (running) !stopping else !starting && !checkingEndpoint && !stopping && canConnect,
+                enabled = if (running) !stopping && !rootBusy else !starting && !checkingEndpoint && !stopping && !rootBusy && canConnect,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(17.dp),
                 colors = if (running) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors(),

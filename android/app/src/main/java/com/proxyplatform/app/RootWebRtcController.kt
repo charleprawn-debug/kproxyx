@@ -1,102 +1,105 @@
 package com.proxyplatform.app
 
 import android.content.Context
+import android.os.Process
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Applies a temporary device-wide firewall policy for advanced-mode WebRTC
- * protection. All commands are static; no user-controlled values enter a shell.
+ * Temporary device-wide OUTPUT firewall, not a browser WebRTC preference.
+ * Only this app's TCP upstream, loopback, system DNS and DHCP may bypass it.
+ * Arbitrary direct TCP is blocked too: TURN/TLS need not use a well-known port.
  */
 internal object RootWebRtcController {
     private const val PREFS = "root_webrtc_firewall"
     private const val KEY_ACTIVE = "active"
-    private const val CHAIN = "KPX_WEBRTC_BLOCK"
-    private const val COMMAND_TIMEOUT_SECONDS = 20L
+    private const val KEY_ENABLED = "enabled"
+    private const val COMMAND_TIMEOUT_SECONDS = 45L
 
-    fun hasRoot(): Boolean = runCatching {
-        val output = runAsRoot("id -u")
-        output.lineSequence().any { it.trim() == "0" }
-    }.getOrDefault(false)
+    /** Does not execute su or show a permission dialog. Hidden root may be undetectable. */
+    fun isRootAvailable(): Boolean {
+        val directories = System.getenv("PATH").orEmpty().split(File.pathSeparator) +
+            listOf("/system/bin", "/system/xbin", "/sbin", "/su/bin", "/debug_ramdisk")
+        return directories.any { File(it, "su").canExecute() }
+    }
+
+    fun requestRoot(): Result<Unit> = runCatching {
+        check(runAsRoot("id -u").lineSequence().any { it.trim() == "0" }) {
+            "لم يتم منح التطبيق صلاحية الروت."
+        }
+    }
+
+    fun isEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
+    fun setEnabled(context: Context, enabled: Boolean) {
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_ENABLED, enabled).commit()) { "تعذر حفظ خيار الحماية العالية." }
+    }
 
     fun hasPendingRestore(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ACTIVE, false)
 
+    @Synchronized
     fun apply(context: Context): Result<Unit> = runCatching {
-        check(hasRoot()) { "لم يتم منح التطبيق صلاحية الروت." }
+        requestRoot().getOrThrow()
         val state = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         check(state.edit().putBoolean(KEY_ACTIVE, true).commit()) {
-            "تعذر حفظ حالة الاستعادة قبل تفعيل حجب WebRTC."
+            "تعذر حفظ حالة الاستعادة قبل تفعيل الحماية."
         }
         try {
-            runAsRoot(APPLY_SCRIPT)
+            runAsRoot(RootWebRtcRules.apply(Process.myUid()))
         } catch (failure: Throwable) {
-            val cleanupFailure = runCatching { runAsRoot(RESTORE_SCRIPT) }.exceptionOrNull()
+            val cleanupFailure = restore(context).exceptionOrNull()
             if (cleanupFailure != null) {
                 throw IllegalStateException(
-                    "فشل تفعيل حجب WebRTC، كما تعذرت استعادة قواعد الجدار الناري: ${cleanupFailure.message}",
+                    "فشل تفعيل الحماية وتعذرت إزالة بعض القواعد. أعد منح الروت ثم اضغط استعادة الإعدادات.",
                     failure,
                 )
             }
-            state.edit().putBoolean(KEY_ACTIVE, false).commit()
             throw failure
         }
     }
 
+    @Synchronized
     fun restore(context: Context): Result<Unit> = runCatching {
         if (!hasPendingRestore(context)) return@runCatching
-        check(hasRoot()) { "تعذرت استعادة الشبكة: صلاحية الروت غير متاحة." }
-        runAsRoot(RESTORE_SCRIPT)
-        check(
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit().putBoolean(KEY_ACTIVE, false).commit()
-        ) { "تمت إزالة القواعد لكن تعذر تحديث حالة الاستعادة المحفوظة." }
+        runAsRoot(RootWebRtcRules.restore)
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_ACTIVE, false).commit()) {
+            "تمت إزالة القواعد لكن تعذر تحديث حالة الاستعادة المحفوظة."
+        }
     }
 
     private fun runAsRoot(script: String): String {
-        val process = ProcessBuilder("su", "-c", script)
-            .redirectErrorStream(true)
-            .start()
-        if (!process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            process.destroyForcibly()
-            throw IllegalStateException("انتهت مهلة تنفيذ أمر الروت.")
+        // Drain concurrently: waiting before reading can deadlock on a full pipe.
+        val output = StringBuilder()
+        val process = ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
+        val reader = Thread {
+            runCatching {
+                process.inputStream.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        synchronized(output) {
+                            if (output.length < 8192) output.append(line.take(512)).append('\n')
+                        }
+                    }
+                }
+            }
+        }.apply { isDaemon = true; start() }
+        try {
+            if (!process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                throw IllegalStateException("انتهت مهلة الروت؛ وافق على الطلب ثم حاول مجددًا.")
+            }
+            reader.join(1000)
+            check(process.exitValue() == 0) {
+                synchronized(output) { output.toString().trim() }.ifBlank {
+                    "رفض su الأمر أو فشل تطبيق قواعد الحماية (exit ${process.exitValue()})."
+                }
+            }
+            return synchronized(output) { output.toString().trim() }
+        } finally {
+            process.destroy()
+            if (process.isAlive) process.destroyForcibly()
         }
-        val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-        if (process.exitValue() != 0) {
-            throw IllegalStateException(
-                output.takeIf { it.isNotBlank() }
-                    ?: "رفض su الأمر أو فشل تنفيذ قواعد الجدار الناري (exit ${process.exitValue()})."
-            )
-        }
-        return output
     }
-
-    private val APPLY_SCRIPT = """
-        set -e
-        command -v iptables >/dev/null 2>&1 || { echo 'iptables غير متاح'; exit 41; }
-        command -v ip6tables >/dev/null 2>&1 || { echo 'ip6tables غير متاح'; exit 42; }
-        for BIN in iptables ip6tables; do
-          ${'$'}BIN -N $CHAIN 2>/dev/null || ${'$'}BIN -F $CHAIN
-          ${'$'}BIN -F $CHAIN
-          ${'$'}BIN -A $CHAIN -o lo -j RETURN
-          ${'$'}BIN -A $CHAIN -p udp --dport 53 -j RETURN
-          ${'$'}BIN -A $CHAIN -p udp -j REJECT
-          ${'$'}BIN -A $CHAIN -p tcp --dport 3478 -j REJECT
-          ${'$'}BIN -A $CHAIN -p tcp --dport 5349 -j REJECT
-          ${'$'}BIN -A $CHAIN -p tcp --dport 19302 -j REJECT
-          ${'$'}BIN -C OUTPUT -j $CHAIN 2>/dev/null || ${'$'}BIN -I OUTPUT 1 -j $CHAIN
-        done
-    """.trimIndent()
-
-    private val RESTORE_SCRIPT = """
-        set -e
-        for BIN in iptables ip6tables; do
-          if command -v "${'$'}BIN" >/dev/null 2>&1; then
-            while ${'$'}BIN -C OUTPUT -j $CHAIN 2>/dev/null; do
-              ${'$'}BIN -D OUTPUT -j $CHAIN || break
-            done
-            ${'$'}BIN -F $CHAIN 2>/dev/null || true
-            ${'$'}BIN -X $CHAIN 2>/dev/null || true
-          fi
-        done
-    """.trimIndent()
 }

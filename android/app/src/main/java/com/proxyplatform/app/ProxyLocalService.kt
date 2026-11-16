@@ -21,6 +21,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.Executors
 
 /**
  * Local proxy service that runs sing-box with a mixed (SOCKS + HTTP) inbound
@@ -34,6 +35,8 @@ class ProxyLocalService : Service(), CommandServerHandler {
     private val tag = "ProxyLocalService"
     private var commandServer: CommandServer? = null
     private var setupReady = false
+    private val worker = Executors.newSingleThreadExecutor()
+    @Volatile private var destroyed = false
 
     override fun onCreate() {
         super.onCreate()
@@ -55,18 +58,27 @@ class ProxyLocalService : Service(), CommandServerHandler {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Root dialogs/firewall commands must never block Android's main thread.
+        worker.execute {
+            if (!destroyed) startTunnel(intent)
+        }
+        // Never restart without credentials or silently restart without protection.
+        return START_NOT_STICKY
+    }
+
+    private fun startTunnel(intent: Intent?) {
         if (intent?.action == ACTION_STOP) {
             AdvancedOperationLog.info(this, "استلمت الخدمة طلب إيقاف.")
             stopTunnel(clearError = true)
-            return START_NOT_STICKY
+            return
         }
         if (!setupReady) {
             AdvancedOperationLog.error(this, "رفض بدء البروكسي: محرك sing-box غير جاهز.")
             recordError("محرك البروكسي الأصلي غير متاح على هذا الجهاز.")
             stopSelf()
-            return START_NOT_STICKY
+            return
         }
-        if (commandServer != null) return START_STICKY
+        if (commandServer != null) return
 
         val host = intent?.getStringExtra(EXTRA_HOST)?.trim().orEmpty()
         val port = intent?.getIntExtra(EXTRA_PORT, 0) ?: 0
@@ -81,19 +93,28 @@ class ProxyLocalService : Service(), CommandServerHandler {
             AdvancedOperationLog.error(this, "بيانات upstream غير صالحة؛ لا تُسجّل بيانات الاعتماد.")
             recordError("أدخل مضيف البروكسي والمنفذ والبروتوكول بشكل صحيح.")
             stopSelf()
-            return START_NOT_STICKY
+            return
         }
 
-        return try {
+        try {
+            // Recover a previous interrupted session before creating a fresh policy.
+            RootWebRtcController.restore(this).getOrThrow()
+            if (blockWebRtc) {
+                check(RootWebRtcController.isEnabled(this)) { "فعّل خيار الحماية العالية أولًا." }
+                RootWebRtcController.apply(this).getOrThrow()
+                AdvancedOperationLog.output(this, "طُبقت الحماية العالية على IPv4 وIPv6.")
+            }
+            check(!destroyed) { "أُوقفت الخدمة أثناء بدء الاتصال." }
             AdvancedOperationLog.info(
                 this,
                 "إعداد outbound: endpoint=$host:$port, protocol=${protocol.uppercase()}, authentication=${username.isNotBlank()}؛ بيانات الاعتماد لا تُسجّل."
             )
             val localPort = findAvailableLocalPort(requestedLocalPort)
             AdvancedOperationLog.info(this, "المنفذ المحلي المختار: 127.0.0.1:$localPort.")
-            val config = SingBoxConfig.write(this, protocol, host, port, username, password, localPort, blockWebRtc, allowUdp)
+            val config = SingBoxConfig.write(this, protocol, host, port, username, password, localPort, blockWebRtc, allowUdp && !blockWebRtc)
             AdvancedOperationLog.info(this, "تم إنشاء إعداد sing-box في مساحة التطبيق الخاصة.")
             val server = CommandServer(this, SingBoxPlatformInterface())
+            commandServer = server
             server.start()
             AdvancedOperationLog.info(this, "بدء CommandServer وتحميل إعداد البروكسي المحلي.")
             server.startOrReloadService(config.readText(), OverrideOptions().apply { autoRedirect = false })
@@ -106,18 +127,18 @@ class ProxyLocalService : Service(), CommandServerHandler {
             AdvancedOperationLog.output(this, "sing-box يعمل؛ inbound=mixed, listen=127.0.0.1:$localPort.")
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, notification("البروكسي المحلي نشط"))
-            START_STICKY
         } catch (error: Exception) {
             Log.e(tag, "Local proxy startup failed", error)
             AdvancedOperationLog.exception(this, "فشل تشغيل البروكسي المحلي", error)
             recordError("تعذر تشغيل البروكسي المحلي: ${error.rootCauseMessage()}")
             stopTunnel()
-            START_NOT_STICKY
         }
     }
 
     override fun onDestroy() {
-        stopTunnel()
+        destroyed = true
+        worker.execute { stopTunnel() }
+        worker.shutdown()
         super.onDestroy()
     }
 
@@ -151,8 +172,13 @@ class ProxyLocalService : Service(), CommandServerHandler {
         runCatching { commandServer?.closeService() }
         runCatching { commandServer?.close() }
         commandServer = null
+        val restore = RootWebRtcController.restore(this)
         val editor = getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_RUNNING, false)
-        if (clearError) editor.remove(KEY_ERROR)
+        if (restore.isFailure) {
+            val message = "تعذرت إزالة الحماية العالية. أعد منح الروت ثم استعد إعدادات الجلسة."
+            editor.putString(KEY_ERROR, message)
+            AdvancedOperationLog.error(this, message)
+        } else if (clearError) editor.remove(KEY_ERROR)
         editor.apply()
         AdvancedOperationLog.output(this, "أُغلقت خدمة البروكسي المحلي.")
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -219,7 +245,9 @@ class ProxyLocalService : Service(), CommandServerHandler {
     override fun getSystemProxyStatus(): SystemProxyStatus =
         SystemProxyStatus().apply { available = false; enabled = false }
     override fun serviceReload() = Unit
-    override fun serviceStop() = stopTunnel()
+    override fun serviceStop() {
+        if (!worker.isShutdown) worker.execute { stopTunnel() }
+    }
     override fun setSystemProxyEnabled(isEnabled: Boolean) = Unit
     override fun triggerNativeCrash() = Unit
     override fun writeDebugMessage(message: String) {

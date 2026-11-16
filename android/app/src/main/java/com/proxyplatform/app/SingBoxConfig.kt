@@ -27,7 +27,7 @@ object SingBoxConfig {
         if (protocol in setOf("vmess", "vless", "trojan", "shadowsocks")) {
             outbound.put("multiplex", JSONObject().put("enabled", true).put("protocol", "smux").put("max_connections", 4))
         }
-        if (!allowUdp) outbound.put("network", "tcp")
+        if (!allowUdp || blockWebRtc) outbound.put("network", "tcp")
         if (username.isNotBlank()) {
             outbound.put("username", username)
             outbound.put("password", password)
@@ -56,7 +56,9 @@ object SingBoxConfig {
                 .put(outbound)
                 .put(JSONObject().put("type", "direct").put("tag", "direct")))
             .put("route", JSONObject()
-                .put("rules", JSONArray())
+                .put("rules", JSONArray().apply {
+                    if (blockWebRtc) put(JSONObject().put("network", "udp").put("action", "reject"))
+                })
                 .put("auto_detect_interface", false)
                 .put("final", "proxy"))
 
