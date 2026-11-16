@@ -89,6 +89,30 @@ router.get('/overview', async (_req, res) => {
   return res.json({ data: { counts: Object.fromEntries(counts), activeSubscriptions: activeSubscriptions ?? 0, recentUsers: recentUsers ?? [], recentPlans: recentPlans ?? [] } });
 });
 
+router.get('/stats', async (_req, res) => {
+  const now = Date.now();
+  const periods = { day: new Date(now - 24 * 60 * 60 * 1000).toISOString(), week: new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString(), month: new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString() };
+  const [{ count: totalUsers }, { count: activeSubscriptions }, { data: wallets, error: walletsError }, { data: subscriptions, error: subscriptionsError }, { count: sessionsLast30Days }] = await Promise.all([
+    supabaseAdmin.from('users').select('id', { count: 'exact', head: true }),
+    supabaseAdmin.from('subscriptions').select('id', { count: 'exact', head: true }).eq('status', 'active').gt('expires_at', new Date().toISOString()),
+    supabaseAdmin.from('wallets').select('user_id,balance,currency'),
+    supabaseAdmin.from('subscriptions').select('id,subscription_plan_id,status,expires_at,subscription_plans(name)').eq('status', 'active').gt('expires_at', new Date().toISOString()),
+    supabaseAdmin.from('connection_sessions').select('id', { count: 'exact', head: true }).gte('started_at', periods.month),
+  ]);
+  if (walletsError || subscriptionsError) return res.status(500).json({ error: { code: 'STATS_UNAVAILABLE', message: 'تعذر تحميل إحصائيات الأرصدة والاشتراكات.' } });
+  const activeUsers = await Promise.all(Object.entries(periods).map(async ([key, since]) => {
+    const { count } = await supabaseAdmin.from('users').select('id', { count: 'exact', head: true }).gte('last_login_at', since);
+    return [key, count ?? 0] as const;
+  }));
+  const balanceTotal = (wallets ?? []).reduce((sum, wallet) => sum + Number(wallet.balance ?? 0), 0);
+  const planCounts = new Map<string, { name: string; count: number }>();
+  for (const subscription of subscriptions ?? []) {
+    const relation = Array.isArray(subscription.subscription_plans) ? subscription.subscription_plans[0] : subscription.subscription_plans;
+    const name = relation?.name ?? 'بدون باقة'; const current = planCounts.get(name) ?? { name, count: 0 }; current.count += 1; planCounts.set(name, current);
+  }
+  return res.json({ data: { totalUsers: totalUsers ?? 0, activeSubscriptions: activeSubscriptions ?? 0, walletsCount: wallets?.length ?? 0, balanceTotal, sessionsLast30Days: sessionsLast30Days ?? 0, activeUsers: Object.fromEntries(activeUsers), subscriptionsByPlan: [...planCounts.values()].sort((a, b) => b.count - a.count) } });
+});
+
 router.get('/users', async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit ?? 100), 1), 250);
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
@@ -101,7 +125,9 @@ router.get('/users', async (req, res) => {
   if (activeSince) query = query.gte('last_login_at', activeSince);
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: { code: 'USERS_UNAVAILABLE', message: 'Could not load users' } });
-  return res.json({ data: (data ?? []).map((user) => ({ ...user, activeWithin24Hours: Boolean(user.last_login_at && new Date(user.last_login_at).getTime() >= Date.now() - 24 * 60 * 60 * 1000) })) });
+  const { data: wallets } = await supabaseAdmin.from('wallets').select('user_id,balance,currency').in('user_id', (data ?? []).map((user) => user.id));
+  const walletByUser = new Map((wallets ?? []).map((wallet) => [wallet.user_id, wallet]));
+  return res.json({ data: (data ?? []).map((user) => ({ ...user, wallet: walletByUser.get(user.id) ?? { balance: 0, currency: 'USD' }, activeWithin24Hours: Boolean(user.last_login_at && new Date(user.last_login_at).getTime() >= Date.now() - 24 * 60 * 60 * 1000) })) });
 });
 router.get('/users/:id/wallet', async (req, res) => {
   const { data, error } = await supabaseAdmin.rpc('ensure_wallet', { p_user_id: req.params.id });
