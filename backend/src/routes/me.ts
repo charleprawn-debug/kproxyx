@@ -232,7 +232,7 @@ router.post('/wallet/top-up/requests/:id/verify', async (req, res) => {
 router.get('/access', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('subscriptions').select('status,expires_at,proxy_products(feature_flags),subscription_plans(feature_flags)').eq('user_id', req.user!.id).eq('status', 'active').gt('expires_at', new Date().toISOString());
   if (error) return res.status(500).json({ error: { code: 'ACCESS_UNAVAILABLE', message: 'Could not load feature access' } });
-  const access = { advanced: false, sim: false, vpn: false, mock_location: false };
+  const access = { advanced: false, sim: false, vpn: false, mock_location: false, broadcast: false };
   for (const row of data ?? []) for (const flags of [row.proxy_products, row.subscription_plans]) for (const [key, value] of Object.entries((flags as { feature_flags?: Record<string, boolean> } | null)?.feature_flags ?? {})) if (key in access && value === true) access[key as keyof typeof access] = true;
   const { data: grants } = await supabaseAdmin.from('user_feature_grants').select('feature_key,enabled,expires_at').eq('user_id', req.user!.id).eq('enabled', true);
   for (const grant of grants ?? []) if ((!grant.expires_at || new Date(grant.expires_at) > new Date()) && grant.feature_key in access) access[grant.feature_key as keyof typeof access] = true;
