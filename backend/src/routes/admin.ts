@@ -5,7 +5,7 @@ import { paymentSettingsStatus, savePaymentSettings } from '../services/paymentS
 
 const router = Router();
 router.use(requireAuth, requireRole('admin'));
-const featureKeys = ['advanced', 'sim', 'vpn', 'mock_location'];
+const featureKeys = ['advanced', 'sim', 'vpn', 'mock_location', 'broadcast'];
 
 router.get('/payment-secrets', async (_req, res) => {
   try { return res.json({ data: await paymentSettingsStatus() }); } catch { return res.status(500).json({ error: { code: 'PAYMENT_SETTINGS_UNAVAILABLE', message: 'تعذر تحميل حالة إعدادات الدفع.' } }); }
@@ -92,11 +92,24 @@ router.get('/overview', async (_req, res) => {
 router.get('/users', async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit ?? 100), 1), 250);
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  const activeWithinHours = Number(req.query.activeWithinHours ?? 0);
+  const activeSince = Number.isFinite(activeWithinHours) && activeWithinHours > 0
+    ? new Date(Date.now() - Math.min(activeWithinHours, 168) * 60 * 60 * 1000).toISOString()
+    : null;
   let query = supabaseAdmin.from('users').select('id,email,full_name,role,status,is_email_verified,created_at,last_login_at,login_count').order('created_at', { ascending: false }).limit(limit);
   if (search) query = query.or(`email.ilike.%${search}%,full_name.ilike.%${search}%`);
+  if (activeSince) query = query.gte('last_login_at', activeSince);
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: { code: 'USERS_UNAVAILABLE', message: 'Could not load users' } });
-  return res.json({ data: data ?? [] });
+  return res.json({ data: (data ?? []).map((user) => ({ ...user, activeWithin24Hours: Boolean(user.last_login_at && new Date(user.last_login_at).getTime() >= Date.now() - 24 * 60 * 60 * 1000) })) });
+});
+router.get('/users/:id/wallet', async (req, res) => {
+  const { data, error } = await supabaseAdmin.rpc('ensure_wallet', { p_user_id: req.params.id });
+  if (error || !data) return res.status(404).json({ error: { code: 'WALLET_UNAVAILABLE', message: 'تعذر تحميل رصيد المستخدم.' } });
+  const wallet = Array.isArray(data) ? data[0] : data;
+  const { data: transactions, error: transactionsError } = await supabaseAdmin.from('wallet_transactions').select('id,amount,balance_after,transaction_type,description,created_at').eq('user_id', req.params.id).order('created_at', { ascending: false }).limit(20);
+  if (transactionsError) return res.status(500).json({ error: { code: 'WALLET_HISTORY_UNAVAILABLE', message: 'تعذر تحميل حركة الرصيد.' } });
+  return res.json({ data: { wallet, transactions: transactions ?? [] } });
 });
 
 router.get('/users/:id/activity', async (req, res) => {

@@ -126,7 +126,7 @@ internal data class Wallet(val balance: Double, val currency: String)
 internal data class WalletTransaction(val amount: Double, val description: String, val type: String, val createdAt: String)
 internal data class TopUpMethod(val code: String, val name: String, val currency: String, val network: String, val address: String, val minAmount: Double, val exchangeRate: Double, val instructions: String)
 internal data class TopUpRequest(val id: String, val methodCode: String, val amount: Double, val currency: String, val expectedUsd: Double, val reference: String, val status: String, val createdAt: String)
-internal data class FeatureAccess(val advanced: Boolean = false, val sim: Boolean = false, val vpn: Boolean = false, val mockLocation: Boolean = false)
+internal data class FeatureAccess(val advanced: Boolean = false, val sim: Boolean = false, val vpn: Boolean = false, val mockLocation: Boolean = false, val broadcast: Boolean = false)
 internal data class AppNotification(
     val id: String,
     val title: String,
@@ -350,14 +350,14 @@ internal class ApiClient(context: Context) {
     }
     fun profile(): Profile { val x = request("/me").getJSONObject("data"); return Profile(x.optString("email"), x.optString("full_name", "بدون اسم"), x.optString("role", "user"), x.optBoolean("is_email_verified")) }
     fun subscriptions(): List<Subscription> { val a = request("/me/subscriptions").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val p = x.optJSONObject("subscription_plans") ?: x.optJSONObject("proxy_products"); Subscription(x.optString("status"), x.optString("expires_at"), p?.optString("name", "الاشتراك") ?: "الاشتراك", p?.optString("protocol", "اشتراك") ?: "اشتراك") } }
-    fun plans(): List<Plan> { val a = request("/me/subscription-plans").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val flags = x.optJSONObject("feature_flags"); val features = listOf("advanced", "sim", "vpn", "mock_location").filter { flags?.optBoolean(it, false) == true }.toSet(); Plan(x.getString("id"), x.optString("name"), x.optString("description"), formatProductPrice(x.optDouble("price", Double.NaN), x.optInt("duration_days", 30).toString() + " يوم"), x.optInt("duration_days", 30).toString() + " يوم", features, x.optBoolean("is_featured"), x.optBoolean("free_claim_once"), x.optInt("free_duration_minutes", 0)) } }
+    fun plans(): List<Plan> { val a = request("/me/subscription-plans").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val flags = x.optJSONObject("feature_flags"); val features = listOf("advanced", "sim", "vpn", "mock_location", "broadcast").filter { flags?.optBoolean(it, false) == true }.toSet(); Plan(x.getString("id"), x.optString("name"), x.optString("description"), formatProductPrice(x.optDouble("price", Double.NaN), x.optInt("duration_days", 30).toString() + " يوم"), x.optInt("duration_days", 30).toString() + " يوم", features, x.optBoolean("is_featured"), x.optBoolean("free_claim_once"), x.optInt("free_duration_minutes", 0)) } }
     fun wallet(): Wallet { val x = request("/me/wallet").getJSONObject("data"); return Wallet(x.optDouble("balance", 0.0), x.optString("currency", "USD")) }
     fun walletTransactions(): List<WalletTransaction> { val a = request("/me/wallet/transactions").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); WalletTransaction(x.optDouble("amount", 0.0), x.optString("description"), x.optString("transaction_type"), x.optString("created_at")) } }
     fun topUpMethods(): List<TopUpMethod> { val a = request("/me/wallet/top-up/methods").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); TopUpMethod(x.optString("code"), x.optString("name"), x.optString("currency"), x.optString("network"), x.optString("address"), x.optDouble("min_amount", 0.0), x.optDouble("exchange_rate", 1.0), x.optString("instructions")) } }
     fun topUpRequests(): List<TopUpRequest> { val a = request("/me/wallet/top-up/requests").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) } }
     fun createTopUp(methodCode: String, amount: Double): TopUpRequest { val x = request("/me/wallet/top-up/requests", "POST", JSONObject().put("methodCode", methodCode).put("amount", amount)).getJSONObject("data"); return TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) }
     fun verifyTopUp(id: String, reference: String): TopUpRequest { val x = request("/me/wallet/top-up/requests/$id/verify", "POST", JSONObject().put("transactionReference", reference)).getJSONObject("data"); return TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) }
-    fun featureAccess(): FeatureAccess { val x = request("/me/access").getJSONObject("data"); return FeatureAccess(x.optBoolean("advanced"), x.optBoolean("sim"), x.optBoolean("vpn"), x.optBoolean("mock_location")) }
+    fun featureAccess(): FeatureAccess { val x = request("/me/access").getJSONObject("data"); return FeatureAccess(x.optBoolean("advanced"), x.optBoolean("sim"), x.optBoolean("vpn"), x.optBoolean("mock_location"), x.optBoolean("broadcast")) }
     fun checkForUpdate(): AppUpdateState {
         val result = execute("/app-update?versionCode=${BuildConfig.VERSION_CODE}", "GET", null, null)
         if (result.code !in 200..299) return AppUpdateState(false, "", "")
@@ -783,6 +783,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
                 sim = access.sim || "sim" in plan.features,
                 vpn = access.vpn || "vpn" in plan.features,
                 mockLocation = access.mockLocation || "mock_location" in plan.features,
+                broadcast = access.broadcast || "broadcast" in plan.features,
             )
             accessLoaded = true
             loadPlansAndWallet(force = true)
