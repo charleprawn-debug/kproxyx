@@ -24,7 +24,8 @@ class RootWebRtcRulesTest {
 
     @Test fun dnsExceptionsAreRestrictedToSystemOwners() {
         val script = RootWebRtcRules.apply(10123)
-        assertTrue(script.contains("for UID in 0 1000 1051"))
+        assertTrue(script.contains("for DNS_UID in 0 1000 1051"))
+        assertFalse(script.contains("for UID in"))
         assertTrue(script.contains("--dport 53 -m owner"))
         assertFalse(script.contains("--dport 53 -j RETURN"))
     }

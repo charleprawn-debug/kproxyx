@@ -119,7 +119,7 @@ class FirewallTests(unittest.TestCase):
 
     def run_script(self, name, fail=None):
         result = subprocess.run(
-            ["/bin/sh", "-c", self.scripts[name]],
+            [os.environ.get("TEST_SHELL", "/bin/sh"), "-c", self.scripts[name]],
             env={**self.env, **({"FAIL": fail} if fail else {})},
             text=True, capture_output=True, timeout=30,
         )

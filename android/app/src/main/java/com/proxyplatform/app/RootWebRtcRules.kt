@@ -16,9 +16,9 @@ internal object RootWebRtcRules {
               ${'$'}BIN -w 5 -A $CHAIN -o lo -j RETURN
               ${'$'}BIN -w 5 -A $CHAIN -p tcp -m owner --uid-owner $appUid -j RETURN
               # Android's system resolver only, not arbitrary apps on port 53.
-              for UID in 0 1000 1051; do
-                ${'$'}BIN -w 5 -A $CHAIN -p udp --dport 53 -m owner --uid-owner "${'$'}UID" -j RETURN
-                ${'$'}BIN -w 5 -A $CHAIN -p tcp --dport 53 -m owner --uid-owner "${'$'}UID" -j RETURN
+              for DNS_UID in 0 1000 1051; do
+                ${'$'}BIN -w 5 -A $CHAIN -p udp --dport 53 -m owner --uid-owner "${'$'}DNS_UID" -j RETURN
+                ${'$'}BIN -w 5 -A $CHAIN -p tcp --dport 53 -m owner --uid-owner "${'$'}DNS_UID" -j RETURN
               done
               if [ "${'$'}BIN" = iptables ]; then
                 ${'$'}BIN -w 5 -A $CHAIN -p udp --sport 68 --dport 67 -m owner --uid-owner 0 -j RETURN
