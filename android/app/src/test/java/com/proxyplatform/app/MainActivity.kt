@@ -1180,7 +1180,7 @@ class MainActivity : ComponentActivity() {
 
     LaunchedEffect(mode, featureTab) {
         if (mode == "advanced" && featureTab == "connection") {
-            rootAvailable = withContext(Dispatchers.IO) { RootWebRtcController.hasRoot() }
+            rootAvailable = withContext(Dispatchers.IO) { RootWebRtcController.isRootAvailable() }
             if (!rootAvailable && blockWebRtcEnabled) {
                 blockWebRtcEnabled = false
                 context.getSharedPreferences("advanced_connection_options", Context.MODE_PRIVATE)
