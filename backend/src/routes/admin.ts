@@ -139,16 +139,30 @@ router.get('/users/:id/wallet', async (req, res) => {
 });
 
 router.get('/users/:id/activity', async (req, res) => {
-  const { data, error } = await supabaseAdmin.from('user_activity_logs').select('id,action,entity_type,entity_id,metadata,created_at').eq('user_id', req.params.id).order('created_at', { ascending: false }).limit(200);
-  // Older installations may not have applied migration 14 yet. Keep the admin
-  // screen usable while the migration is pending; new installations still get
-  // the full activity history from user_activity_logs.
-  if (error) {
-    const missingActivityTable = error.code === 'PGRST205' || error.message?.includes('user_activity_logs');
-    if (missingActivityTable) return res.json({ data: [] });
-    return res.status(500).json({ error: { code: 'USER_ACTIVITY_UNAVAILABLE', message: 'تعذر تحميل سجلات المستخدم.' } });
+  const userId = req.params.id;
+  const [{ data: activityLogs }, { data: subscriptions }, { data: topups }, { data: transactions }, { data: grants }, { data: sessions }, { data: orders }] = await Promise.all([
+    supabaseAdmin.from('user_activity_logs').select('id,action,entity_type,entity_id,metadata,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(200),
+    supabaseAdmin.from('subscriptions').select('id,status,duration_type,started_at,expires_at,created_at,subscription_plan_id,subscription_plans(name),proxy_products(name)').eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
+    supabaseAdmin.from('wallet_topup_requests').select('id,method_code,submitted_amount,submitted_currency,expected_usd,transaction_reference,status,verification_source,admin_note,created_at,updated_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
+    supabaseAdmin.from('wallet_transactions').select('id,amount,balance_after,transaction_type,status,description,reference_id,metadata,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
+    supabaseAdmin.from('user_feature_grants').select('id,feature_key,enabled,expires_at,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
+    supabaseAdmin.from('connection_sessions').select('id,subscription_id,protocol,started_at,ended_at,duration_seconds,status,disconnect_reason,created_at').eq('user_id', userId).order('started_at', { ascending: false }).limit(100),
+    supabaseAdmin.from('orders').select('id,order_number,invoice_number,status,total_amount,payment_method,payment_status,created_at,paid_at,completed_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
+  ]);
+  const events: Array<Record<string, unknown>> = [];
+  for (const row of activityLogs ?? []) events.push(row as Record<string, unknown>);
+  for (const row of subscriptions ?? []) {
+    const plan = Array.isArray(row.subscription_plans) ? row.subscription_plans[0] : row.subscription_plans;
+    const product = Array.isArray(row.proxy_products) ? row.proxy_products[0] : row.proxy_products;
+    events.push({ id: `subscription-${row.id}`, action: `اشتراك: ${row.status === 'active' ? 'نشط' : row.status}`, entity_type: 'subscription', entity_id: row.id, metadata: { plan: plan?.name ?? product?.name ?? 'غير محدد', duration_type: row.duration_type, started_at: row.started_at, expires_at: row.expires_at }, created_at: row.started_at || row.created_at });
   }
-  return res.json({ data: data ?? [] });
+  for (const row of topups ?? []) events.push({ id: `topup-${row.id}`, action: `طلب شحن: ${row.status}`, entity_type: 'top_up', entity_id: row.id, metadata: { method: row.method_code, amount: `${row.submitted_amount} ${row.submitted_currency}`, expected_usd: row.expected_usd, transaction_reference: row.transaction_reference, verification_source: row.verification_source, admin_note: row.admin_note }, created_at: row.created_at });
+  for (const row of transactions ?? []) events.push({ id: `wallet-${row.id}`, action: row.description || `حركة رصيد: ${row.transaction_type}`, entity_type: 'wallet', entity_id: row.id, metadata: { amount: row.amount, balance_after: row.balance_after, status: row.status, reference_id: row.reference_id }, created_at: row.created_at });
+  for (const row of grants ?? []) events.push({ id: `feature-${row.id}`, action: `ميزة: ${row.feature_key} — ${row.enabled ? 'مفعلة' : 'معطلة'}`, entity_type: 'feature_grant', entity_id: row.id, metadata: { feature_key: row.feature_key, expires_at: row.expires_at }, created_at: row.created_at });
+  for (const row of sessions ?? []) events.push({ id: `session-${row.id}`, action: `جلسة اتصال: ${row.status}`, entity_type: 'connection_session', entity_id: row.id, metadata: { protocol: row.protocol, duration_seconds: row.duration_seconds, started_at: row.started_at, ended_at: row.ended_at, disconnect_reason: row.disconnect_reason }, created_at: row.started_at || row.created_at });
+  for (const row of orders ?? []) events.push({ id: `order-${row.id}`, action: `طلب: ${row.status}`, entity_type: 'order', entity_id: row.id, metadata: { order_number: row.order_number, invoice_number: row.invoice_number, total_amount: row.total_amount, payment_method: row.payment_method, payment_status: row.payment_status, paid_at: row.paid_at, completed_at: row.completed_at }, created_at: row.created_at });
+  events.sort((a, b) => new Date(String(b.created_at ?? 0)).getTime() - new Date(String(a.created_at ?? 0)).getTime());
+  return res.json({ data: events.slice(0, 500) });
 });
 
 router.post('/broadcasts', async (req, res) => {

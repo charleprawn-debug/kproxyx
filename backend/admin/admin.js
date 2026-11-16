@@ -85,7 +85,8 @@ async function openBroadcastModal() {
 }
 async function openActivityModal(user) {
   const result = await api(`/users/${user.id}/activity`); const rows = result.data || [];
-  openModal(`سجلات المستخدم — ${esc(user.full_name || user.email)}`, rows.length ? `<div class="sub-list">${rows.map((row) => `<div class="sub-item"><span><b>${esc(row.action)}</b><br><small>${esc(row.entity_type || '')}</small></span><small>${date(row.created_at)}</small></div>`).join('')}</div>` : '<div class="empty">لا توجد سجلات لهذا المستخدم.</div>', async () => {}, 'إغلاق');
+  const details = (row) => Object.entries(row.metadata || {}).filter(([key, value]) => value !== null && value !== undefined && value !== '' && !['admin_id', 'reference_id'].includes(key)).map(([key, value]) => `<span>${esc(key)}: ${esc(typeof value === 'object' ? JSON.stringify(value) : value)}</span>`).join(' · ');
+  openModal(`سجلات المستخدم — ${esc(user.full_name || user.email)}`, rows.length ? `<div class="sub-list activity-list">${rows.map((row) => `<div class="sub-item"><span><b>${esc(row.action)}</b><br><small>${esc(row.entity_type || '')}${details(row) ? ` · ${details(row)}` : ''}</small></span><small>${date(row.created_at)}<br>${row.created_at ? new Date(row.created_at).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' }) : ''}</small></div>`).join('')}</div>` : '<div class="empty">لا توجد سجلات لهذا المستخدم.</div>', async () => {}, 'إغلاق');
 }
 
 async function actionForUser(actionName, userId, data) {
