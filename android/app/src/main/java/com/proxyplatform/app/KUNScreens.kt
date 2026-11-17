@@ -111,7 +111,18 @@ internal fun AuthScreen(vm: AppViewModel, onOpenRepair: () -> Unit = {}) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(24.dp))
-            BrandMark(58.dp)
+            Box(Modifier.fillMaxWidth().widthIn(max = 480.dp).height(72.dp)) {
+                Box(Modifier.align(Alignment.Center)) { BrandMark(58.dp) }
+                Surface(
+                    modifier = Modifier.align(Alignment.CenterEnd).size(38.dp).clip(CircleShape).clickable(onClick = onOpenRepair),
+                    color = Color.White.copy(alpha = 0.16f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.28f)),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("🔧", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
             Spacer(Modifier.height(14.dp))
             Text("Kun cloak", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color.White)
             Text("اتصالك، بإعدادك.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.82f))
@@ -181,20 +192,6 @@ internal fun AuthScreen(vm: AppViewModel, onOpenRepair: () -> Unit = {}) {
                         enabled = !vm.loading && (changePassword || (email.isNotBlank() && password.length >= 8 && (!register || name.isNotBlank()))),
                         modifier = Modifier.fillMaxWidth().height(56.dp), loading = vm.loading,
                     )
-                }
-            }
-            Surface(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp).clip(RoundedCornerShape(18.dp)).clickable(onClick = onOpenRepair),
-                color = Color.White.copy(alpha = 0.96f),
-                tonalElevation = 1.dp,
-            ) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("🔑🔑", style = MaterialTheme.typography.titleLarge)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("إصلاح اتصال الهاتف", fontWeight = FontWeight.Bold, color = KunPalette.PrimaryDeep)
-                        Text("اقتران ADB وتنظيف إعدادات البروكسي بدون تسجيل دخول", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Text("فتح", color = KunPalette.Primary, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(Modifier.height(18.dp))
