@@ -13,10 +13,36 @@ internal object AdvancedSystemProxy {
         "global_http_proxy_port",
         "http_proxy",
     )
+    private val proxyCleanupSettings = listOf(
+        "global_http_proxy_host",
+        "global_http_proxy_port",
+        "global_https_proxy_host",
+        "global_https_proxy_port",
+        "global_proxy_pac_url",
+    )
 
     fun hasPendingRestore(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(SNAPSHOT_SAVED, false)
+
+    /**
+     * Emergency recovery used from the login screen. It only removes Android
+     * global proxy keys and stops the local proxy service; it never uninstalls
+     * anything, revokes ADB pairing, or changes language/timezone settings.
+     */
+    fun clearAll(context: Context): Result<Unit> = runCatching {
+        proxyCleanupSettings.forEach { key -> write(context, key, null).getOrThrow() }
+        write(context, "http_proxy", ":0").getOrThrow()
+        check(ProxyRestorePolicy.isNoProxy(read(context, "http_proxy").getOrThrow())) {
+            "تعذر إزالة إعداد بروكسي النظام."
+        }
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(SNAPSHOT).remove(SNAPSHOT_SAVED).commit()) {
+            "تعذر تنظيف حالة الاستعادة المحلية."
+        }
+        AdvancedOperationLog.output(context, "تم تنظيف إعدادات بروكسي النظام فقط.")
+    }.onFailure {
+        AdvancedOperationLog.exception(context, "فشل تنظيف إعدادات بروكسي النظام", it)
+    }
 
     fun apply(context: Context, proxy: String): Result<Unit> = runCatching {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

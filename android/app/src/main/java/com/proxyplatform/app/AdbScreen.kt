@@ -54,13 +54,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun AdbScreen(vm: AppViewModel, padding: PaddingValues) {
+internal fun AdbScreen(vm: AppViewModel, padding: PaddingValues, recoveryMode: Boolean = false, onBack: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var pairingCode by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var showPairingNotificationOnGrant by remember { mutableStateOf(false) }
+    var resetBusy by remember { mutableStateOf(false) }
 
     fun refreshState() {
         scope.launch {
@@ -124,6 +125,12 @@ internal fun AdbScreen(vm: AppViewModel, padding: PaddingValues) {
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        if (recoveryMode) item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("إصلاح اتصال الهاتف", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                TextButton(onClick = onBack) { Text("العودة") }
+            }
+        }
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -322,6 +329,40 @@ internal fun AdbScreen(vm: AppViewModel, padding: PaddingValues) {
                             }
                         }
                     }
+                }
+            }
+        }
+        if (recoveryMode) item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = KunPalette.WarningSoft),
+                border = androidx.compose.foundation.BorderStroke(1.dp, KunPalette.Warning.copy(alpha = 0.35f)),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("إعادة ضبط إعدادات البروكسي", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        if (ready) "يزيل هذا الإجراء إعدادات بروكسي Android فقط ويعيد الاتصال المباشر. لا يحذف التطبيق ولا يلغي اقتران ADB ولا يغيّر اللغة أو المنطقة الزمنية."
+                        else "بعد إتمام اقتران ADB، يمكنك تنظيف إعدادات البروكسي العالقة من هنا بدون تسجيل دخول.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    KUNPrimaryButton(
+                        text = "تنظيف إعدادات البروكسي",
+                        onClick = {
+                            resetBusy = true
+                            message = null
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) { AdvancedSystemProxy.clearAll(context) }
+                                if (result.isSuccess) ProxyLocalService.stop(context)
+                                message = result.fold({ "تم تنظيف إعدادات البروكسي وإعادة الاتصال المباشر." }, { "تعذر التنظيف: ${it.message ?: "أعد المحاولة بعد التأكد من اتصال ADB."}" })
+                                resetBusy = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        enabled = ready && !busy && !resetBusy,
+                        loading = resetBusy,
+                    )
                 }
             }
         }

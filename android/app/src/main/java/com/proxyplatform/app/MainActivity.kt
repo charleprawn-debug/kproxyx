@@ -848,13 +848,15 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun ProxyPlatformApp(vm: AppViewModel) {
+    var repairOpen by remember { mutableStateOf(false) }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             when {
                 !vm.updateCheckComplete -> UpdateCheckingScreen()
                 vm.updateRequired -> AppUpdateRequiredScreen(vm.updateMessage, vm.updateUrl)
                 vm.loggedIn -> MainShell(vm)
-                else -> AuthScreen(vm)
+                repairOpen -> AdbScreen(vm, PaddingValues(), recoveryMode = true, onBack = { repairOpen = false })
+                else -> AuthScreen(vm, onOpenRepair = { repairOpen = true })
             }
         }
     }

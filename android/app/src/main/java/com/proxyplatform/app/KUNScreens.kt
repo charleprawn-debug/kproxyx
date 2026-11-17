@@ -80,7 +80,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-internal fun AuthScreen(vm: AppViewModel) {
+internal fun AuthScreen(vm: AppViewModel, onOpenRepair: () -> Unit = {}) {
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) { vm.loadSupportSettings() }
     var mode by remember { mutableStateOf("login") }
@@ -181,6 +181,20 @@ internal fun AuthScreen(vm: AppViewModel) {
                         enabled = !vm.loading && (changePassword || (email.isNotBlank() && password.length >= 8 && (!register || name.isNotBlank()))),
                         modifier = Modifier.fillMaxWidth().height(56.dp), loading = vm.loading,
                     )
+                }
+            }
+            Surface(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp).clip(RoundedCornerShape(18.dp)).clickable(onClick = onOpenRepair),
+                color = Color.White.copy(alpha = 0.96f),
+                tonalElevation = 1.dp,
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("🔑🔑", style = MaterialTheme.typography.titleLarge)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("إصلاح اتصال الهاتف", fontWeight = FontWeight.Bold, color = KunPalette.PrimaryDeep)
+                        Text("اقتران ADB وتنظيف إعدادات البروكسي بدون تسجيل دخول", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text("فتح", color = KunPalette.Primary, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(Modifier.height(18.dp))
