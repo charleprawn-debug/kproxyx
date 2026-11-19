@@ -19,7 +19,9 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.io.File
 import java.util.concurrent.Executors
+import org.json.JSONObject
 
 /**
  * A proxy listener owned only by independent GeoIP features.
@@ -80,11 +82,7 @@ class FeatureProxyService : Service(), CommandServerHandler {
             commandServer = server
             server.start()
             server.startOrReloadService(config.readText(), OverrideOptions().apply { autoRedirect = false })
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putBoolean(KEY_RUNNING, true)
-                .putInt(KEY_LOCAL_PORT, localPort)
-                .remove(KEY_ERROR)
-                .apply()
+            writeState(running = true, localPort = localPort, error = null)
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, notification("خدمة الموقع والمنطقة الزمنية نشطة"))
         } catch (failure: Exception) {
@@ -114,20 +112,43 @@ class FeatureProxyService : Service(), CommandServerHandler {
         runCatching { commandServer?.closeService() }
         runCatching { commandServer?.close() }
         commandServer = null
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-            .putBoolean(KEY_RUNNING, false)
-            .apply { if (clearError) remove(KEY_ERROR) }
-            .apply()
+        writeState(running = false, localPort = 0, error = if (clearError) null else lastError(this))
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun recordError(message: String) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-            .putBoolean(KEY_RUNNING, false)
-            .putString(KEY_ERROR, message)
-            .apply()
+        writeState(running = false, localPort = 0, error = message)
         AdvancedOperationLog.error(this, message)
+    }
+
+    /**
+     * SharedPreferences are process-cached and are not a reliable IPC channel.
+     * Use an atomic file so MainActivity can observe this service immediately.
+     */
+    private fun writeState(running: Boolean, localPort: Int, error: String?) {
+        val state = JSONObject()
+            .put("running", running)
+            .put("local_port", localPort)
+            .put("updated_at", System.currentTimeMillis())
+        if (error != null) state.put("error", error) else state.put("error", JSONObject.NULL)
+        val target = stateFile(this)
+        target.parentFile?.mkdirs()
+        val temporary = File(target.parentFile, "${target.name}.tmp")
+        runCatching {
+            temporary.writeText(state.toString())
+            if (!temporary.renameTo(target)) {
+                target.delete()
+                check(temporary.renameTo(target)) { "تعذر تحديث حالة خدمة الموقع." }
+            }
+        }.onFailure { AdvancedOperationLog.exception(this, "تعذر حفظ حالة خدمة الموقع", it) }
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putBoolean(KEY_RUNNING, running)
+            .putInt(KEY_LOCAL_PORT, localPort)
+            .apply {
+                if (error == null) remove(KEY_ERROR) else putString(KEY_ERROR, error)
+            }
+            .apply()
     }
 
     private fun findAvailablePort(): Int = ServerSocket(0, 1, InetAddress.getByName(LOOPBACK)).use { it.localPort }
@@ -179,16 +200,16 @@ class FeatureProxyService : Service(), CommandServerHandler {
         private const val KEY_RUNNING = "running"
         private const val KEY_LOCAL_PORT = "local_port"
         private const val KEY_ERROR = "last_error"
+        private const val STATE_FILE = "feature_proxy/state.json"
         private const val CHANNEL_ID = "feature_proxy_service"
         // Keep this distinct from ProxyVpnService, which may run at the same time.
         private const val NOTIFICATION_ID = 7003
         private const val LOOPBACK = "127.0.0.1"
 
-        fun isRunning(context: Context): Boolean =
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_RUNNING, false)
+        fun isRunning(context: Context): Boolean = readState(context).optBoolean("running", false)
 
         fun localPort(context: Context): Int =
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_LOCAL_PORT, 0)
+            readState(context).optInt("local_port", 0)
 
         fun isListenerReady(context: Context): Boolean {
             val port = localPort(context)
@@ -200,11 +221,15 @@ class FeatureProxyService : Service(), CommandServerHandler {
         }
 
         fun lastError(context: Context): String? =
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ERROR, null)
+            readState(context).optString("error", null).takeUnless { it.isNullOrBlank() || it == "null" }
 
-        fun stop(context: Context) { context.stopService(Intent(context, FeatureProxyService::class.java)) }
+        fun stop(context: Context) {
+            context.stopService(Intent(context, FeatureProxyService::class.java))
+            writeStateFile(context, running = false, localPort = 0, error = null)
+        }
 
         fun start(context: Context, protocol: String, host: String, port: Int, username: String, password: String) {
+            writeStateFile(context, running = false, localPort = 0, error = null)
             val intent = Intent(context, FeatureProxyService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_PROTOCOL, protocol)
@@ -214,6 +239,30 @@ class FeatureProxyService : Service(), CommandServerHandler {
                 putExtra(EXTRA_PASSWORD, password)
             }
             androidx.core.content.ContextCompat.startForegroundService(context, intent)
+        }
+
+        private fun stateFile(context: Context): File = File(context.filesDir, STATE_FILE)
+
+        private fun readState(context: Context): JSONObject = runCatching {
+            JSONObject(stateFile(context).takeIf { it.isFile }?.readText().orEmpty())
+        }.getOrDefault(JSONObject())
+
+        private fun writeStateFile(context: Context, running: Boolean, localPort: Int, error: String?) {
+            val state = JSONObject()
+                .put("running", running)
+                .put("local_port", localPort)
+                .put("updated_at", System.currentTimeMillis())
+                .put("error", error ?: JSONObject.NULL)
+            val target = stateFile(context)
+            target.parentFile?.mkdirs()
+            val temporary = File(target.parentFile, "${target.name}.tmp")
+            runCatching {
+                temporary.writeText(state.toString())
+                if (!temporary.renameTo(target)) {
+                    target.delete()
+                    check(temporary.renameTo(target)) { "تعذر تحديث حالة خدمة الموقع." }
+                }
+            }
         }
     }
 }

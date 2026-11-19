@@ -1189,7 +1189,8 @@ class MainActivity : ComponentActivity() {
             delay(350)
         }
         FeatureProxyService.start(context, protocol, host, parsedPort!!, if (auth) username else "", if (auth) password else "")
-        repeat(40) {
+        repeat(80) {
+            FeatureProxyService.lastError(context)?.let { throw IllegalStateException(it) }
             if (FeatureProxyService.isRunning(context) && FeatureProxyService.isListenerReady(context)) return FeatureProxyService.localPort(context)
             delay(250)
         }
