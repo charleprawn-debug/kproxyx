@@ -21,7 +21,7 @@ internal object LibboxRuntime {
             workingPath = (app.getExternalFilesDir(null) ?: app.filesDir).path
             tempPath = app.cacheDir.path
             fixAndroidStack = true
-            this.logMaxLines = logMaxLines
+            this.logMaxLines = logMaxLines.toLong()
             appVersion = BuildConfig.VERSION_CODE.toString()
             appMarketingVersion = BuildConfig.VERSION_NAME
             debug = BuildConfig.DEBUG
