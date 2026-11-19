@@ -82,6 +82,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
+import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -169,6 +170,7 @@ internal class ApiClient(context: Context) {
     private val appContext = context.applicationContext
     private val store = SessionStore(appContext)
     private val client = OkHttpClient.Builder()
+        .connectionPool(ConnectionPool(0, 1, TimeUnit.MILLISECONDS))
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
@@ -177,7 +179,33 @@ internal class ApiClient(context: Context) {
     private val jsonType = "application/json".toMediaType()
     private val refreshLock = Any()
 
+    /** Drop sockets that may still point at the stopped local advanced proxy. */
+    fun resetNetworkConnections() {
+        client.connectionPool.evictAll()
+        client.cache?.evictAll()
+    }
+
     private data class HttpResult(val code: Int, val body: JSONObject)
+
+    private fun objectField(body: JSONObject, key: String): JSONObject {
+        return when (val value = body.opt(key)) {
+            is JSONObject -> value
+            is String -> runCatching { JSONObject(value) }.getOrElse {
+                throw IllegalStateException("استجابة الخادم غير صالحة للحقل $key.")
+            }
+            else -> throw IllegalStateException("استجابة الخادم لا تحتوي كائنًا صالحًا للحقل $key.")
+        }
+    }
+
+    private fun arrayField(body: JSONObject, key: String): org.json.JSONArray {
+        return when (val value = body.opt(key)) {
+            is org.json.JSONArray -> value
+            is String -> runCatching { org.json.JSONArray(value) }.getOrElse {
+                throw IllegalStateException("استجابة الخادم غير صالحة للقائمة $key.")
+            }
+            else -> throw IllegalStateException("استجابة الخادم لا تحتوي قائمة صالحة للحقل $key.")
+        }
+    }
 
     private fun execute(path: String, method: String, body: JSONObject?, token: String?): HttpResult {
         val builder = Request.Builder()
@@ -348,16 +376,39 @@ internal class ApiClient(context: Context) {
         val a = request("/me/proxies").getJSONArray("data")
         return (0 until a.length()).map { i -> val x = a.getJSONObject(i); val location = x.optJSONObject("location"); RemoteProxy(x.optString("id", x.optString("order_id")), x.optString("protocol", "socks5"), x.optString("host"), x.optInt("port"), x.optString("username"), x.optString("password"), x.optString("status", "active"), x.optString("expires_at"), listOf(location?.optJSONObject("country")?.optString("name"), location?.optString("state"), location?.optString("isp")).filter { !it.isNullOrBlank() }.joinToString(" • ")) }
     }
-    fun profile(): Profile { val x = request("/me").getJSONObject("data"); return Profile(x.optString("email"), x.optString("full_name", "بدون اسم"), x.optString("role", "user"), x.optBoolean("is_email_verified")) }
-    fun subscriptions(): List<Subscription> { val a = request("/me/subscriptions").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val p = x.optJSONObject("subscription_plans") ?: x.optJSONObject("proxy_products"); Subscription(x.optString("status"), x.optString("expires_at"), p?.optString("name", "الاشتراك") ?: "الاشتراك", p?.optString("protocol", "اشتراك") ?: "اشتراك") } }
-    fun plans(): List<Plan> { val a = request("/me/subscription-plans").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val flags = x.optJSONObject("feature_flags"); val features = listOf("advanced", "sim", "vpn", "mock_location", "broadcast").filter { flags?.optBoolean(it, false) == true }.toSet(); Plan(x.getString("id"), x.optString("name"), x.optString("description"), formatProductPrice(x.optDouble("price", Double.NaN), x.optInt("duration_days", 30).toString() + " يوم"), x.optInt("duration_days", 30).toString() + " يوم", features, x.optBoolean("is_featured"), x.optBoolean("free_claim_once"), x.optInt("free_duration_minutes", 0)) } }
-    fun wallet(): Wallet { val x = request("/me/wallet").getJSONObject("data"); return Wallet(x.optDouble("balance", 0.0), x.optString("currency", "USD")) }
+    fun profile(): Profile { val x = objectField(request("/me"), "data"); return Profile(x.optString("email"), x.optString("full_name", "بدون اسم"), x.optString("role", "user"), x.optBoolean("is_email_verified")) }
+    fun subscriptions(): List<Subscription> { val a = arrayField(request("/me/subscriptions"), "data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val p = x.optJSONObject("subscription_plans") ?: x.optJSONObject("proxy_products"); Subscription(x.optString("status"), x.optString("expires_at"), p?.optString("name", "الاشتراك") ?: "الاشتراك", p?.optString("protocol", "اشتراك") ?: "اشتراك") } }
+    fun plans(): List<Plan> {
+        val body = request("/me/subscription-plans")
+        val raw = body.opt("data")
+        val plans = when (raw) {
+            is org.json.JSONArray -> raw
+            is String -> runCatching { org.json.JSONArray(raw) }.getOrElse {
+                throw IllegalStateException("استجابة الباقات غير صالحة؛ أعد المحاولة بعد استعادة اتصال الشبكة.")
+            }
+            else -> throw IllegalStateException("استجابة الباقات لا تحتوي قائمة صالحة.")
+        }
+        return (0 until plans.length()).map { i ->
+            val x = plans.getJSONObject(i)
+            val flags = x.optJSONObject("feature_flags")
+            val features = listOf("advanced", "sim", "vpn", "mock_location", "broadcast")
+                .filter { flags?.optBoolean(it, false) == true }.toSet()
+            Plan(
+                x.getString("id"), x.optString("name"), x.optString("description"),
+                formatProductPrice(x.optDouble("price", Double.NaN), x.optInt("duration_days", 30).toString() + " يوم"),
+                x.optInt("duration_days", 30).toString() + " يوم", features,
+                x.optBoolean("is_featured"), x.optBoolean("free_claim_once"),
+                x.optInt("free_duration_minutes", 0)
+            )
+        }
+    }
+    fun wallet(): Wallet { val x = objectField(request("/me/wallet"), "data"); return Wallet(x.optDouble("balance", 0.0), x.optString("currency", "USD")) }
     fun walletTransactions(): List<WalletTransaction> { val a = request("/me/wallet/transactions").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); WalletTransaction(x.optDouble("amount", 0.0), x.optString("description"), x.optString("transaction_type"), x.optString("created_at")) } }
     fun topUpMethods(): List<TopUpMethod> { val a = request("/me/wallet/top-up/methods").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); TopUpMethod(x.optString("code"), x.optString("name"), x.optString("currency"), x.optString("network"), x.optString("address"), x.optDouble("min_amount", 0.0), x.optDouble("exchange_rate", 1.0), x.optString("instructions")) } }
     fun topUpRequests(): List<TopUpRequest> { val a = request("/me/wallet/top-up/requests").getJSONArray("data"); return (0 until a.length()).map { val x = a.getJSONObject(it); TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) } }
     fun createTopUp(methodCode: String, amount: Double): TopUpRequest { val x = request("/me/wallet/top-up/requests", "POST", JSONObject().put("methodCode", methodCode).put("amount", amount)).getJSONObject("data"); return TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) }
     fun verifyTopUp(id: String, reference: String): TopUpRequest { val x = request("/me/wallet/top-up/requests/$id/verify", "POST", JSONObject().put("transactionReference", reference)).getJSONObject("data"); return TopUpRequest(x.optString("id"), x.optString("method_code"), x.optDouble("submitted_amount"), x.optString("submitted_currency"), x.optDouble("expected_usd"), x.optString("transaction_reference"), x.optString("status"), x.optString("created_at")) }
-    fun featureAccess(): FeatureAccess { val x = request("/me/access").getJSONObject("data"); return FeatureAccess(x.optBoolean("advanced"), x.optBoolean("sim"), x.optBoolean("vpn"), x.optBoolean("mock_location"), x.optBoolean("broadcast")) }
+    fun featureAccess(): FeatureAccess { val x = objectField(request("/me/access"), "data"); return FeatureAccess(x.optBoolean("advanced"), x.optBoolean("sim"), x.optBoolean("vpn"), x.optBoolean("mock_location"), x.optBoolean("broadcast")) }
     fun checkForUpdate(): AppUpdateState {
         val result = execute("/app-update?versionCode=${BuildConfig.VERSION_CODE}", "GET", null, null)
         if (result.code !in 200..299) return AppUpdateState(false, "", "")
@@ -1123,32 +1174,25 @@ class MainActivity : ComponentActivity() {
         check(selectedSavedProxyId != null && host.isNotBlank()) { "اختر بروكسيًا محفوظًا أولًا." }
         val parsedPort = port.toIntOrNull()
         check(parsedPort in 1..65535) { "بيانات البروكسي المختار غير صالحة." }
-        if (ProxyLocalService.isRunning(context) && ProxyLocalService.isListenerReady(context)) return ProxyLocalService.localPort(context)
-        startLocalProxyService(context, protocol, host, port, if (auth) username else "", if (auth) password else "", false, false)
+        if (FeatureProxyService.isRunning(context)) return FeatureProxyService.localPort(context)
+        FeatureProxyService.start(context, protocol, host, parsedPort!!, if (auth) username else "", if (auth) password else "")
         repeat(40) {
-            if (ProxyLocalService.isRunning(context) && ProxyLocalService.isListenerReady(context)) return ProxyLocalService.localPort(context)
+            if (FeatureProxyService.isRunning(context) && FeatureProxyService.localPort(context) > 0) return FeatureProxyService.localPort(context)
             delay(250)
         }
-        throw IllegalStateException(ProxyLocalService.lastError(context) ?: "تعذر تشغيل خدمة الإعداد المستقل.")
+        throw IllegalStateException(FeatureProxyService.lastError(context) ?: "تعذر تشغيل خدمة الميزات المستقلة.")
     }
 
     fun applyFeatureTimezone() {
         if (!wirelessReady) { featureStatus = "فعّل اتصال ADB أولًا من تبويب ADB."; return }
         featureLoading = true; featureStatus = "جارٍ تحديد المنطقة الزمنية عبر البروكسي…"
         coroutineScope.launch {
-            var temporaryService = false
             runCatching {
-                val port = withContext(Dispatchers.IO) {
-                    val wasRunning = ProxyLocalService.isRunning(context)
-                    val value = ensureFeatureProxy()
-                    temporaryService = !wasRunning
-                    value
-                }
+                val port = withContext(Dispatchers.IO) { ensureFeatureProxy() }
                 val timezone = withContext(Dispatchers.IO) { locationController.fetchProxyTimezone(port) }
                 withContext(Dispatchers.IO) { AdvancedProxyTimezoneController.apply(context, timezone).getOrThrow() }
                 featureStatus = "تم تطبيق المنطقة الزمنية: ${timezone.id}"
             }.onFailure { featureStatus = "تعذر تطبيق المنطقة الزمنية: ${it.message ?: "تحقق من ADB والبروكسي."}" }
-                .also { if (temporaryService && !running) ProxyLocalService.stop(context) }
             featureLoading = false
         }
     }
@@ -1166,7 +1210,6 @@ class MainActivity : ComponentActivity() {
     }
 
     fun startIndependentLocation() {
-        if (!wirelessReady) { featureStatus = "فعّل اتصال ADB أولًا من تبويب ADB."; return }
         if (locationMode == "manual" && (latitude.toDoubleOrNull() == null || longitude.toDoubleOrNull() == null)) { featureStatus = "أدخل خط العرض وخط الطول بشكل صحيح."; return }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             featureStatus = "يلزم إذن الموقع التقريبي لتشغيل الموقع الوهمي."
@@ -1193,7 +1236,7 @@ class MainActivity : ComponentActivity() {
 
     fun stopIndependentLocation() {
         locationController.stop()
-        if (!running && ProxyLocalService.isRunning(context)) ProxyLocalService.stop(context)
+        FeatureProxyService.stop(context)
         mockLocationAuthorized = false
         featureStatus = "تم إيقاف الموقع الوهمي."
     }
@@ -1350,10 +1393,8 @@ class MainActivity : ComponentActivity() {
                         (!ProxyLocalService.isRunning(context) || !ProxyLocalService.isListenerReady(context))
                     ) {
                         AdvancedOperationLog.error(context, "توقفت الخدمة أو المنفذ أثناء تطبيق إعداد النظام.")
-                        val languageRestore = AdvancedProxyLanguageController.restore(context)
-                        val timezoneRestore = AdvancedProxyTimezoneController.restore(context)
                         val proxyRestore = AdvancedSystemProxy.restore(context, expectedProxy)
-                        val failure = languageRestore.exceptionOrNull() ?: timezoneRestore.exceptionOrNull() ?: proxyRestore.exceptionOrNull()
+                        val failure = proxyRestore.exceptionOrNull()
                         Result.failure(
                             IllegalStateException(
                                 failure?.message ?: "توقفت خدمة البروكسي أثناء إعداد النظام."
@@ -1374,14 +1415,11 @@ class MainActivity : ComponentActivity() {
                     AdvancedOperationLog.exception(context, "فشل تشغيل الوضع المتقدم", it)
                 }
                 val restoreResult = withContext(Dispatchers.IO) {
-                    val languageRestore = AdvancedProxyLanguageController.restore(context)
-                    val timezoneRestore = AdvancedProxyTimezoneController.restore(context)
                     val proxyRestore = if (AdvancedSystemProxy.hasPendingRestore(context)) {
                         AdvancedSystemProxy.restore(context, "127.0.0.1:${ProxyLocalService.localPort(context)}")
                     } else Result.success(Unit)
                     val firewallRestore = RootWebRtcController.restore(context)
-                    if (languageRestore.isFailure) languageRestore else if (timezoneRestore.isFailure) timezoneRestore
-                    else if (proxyRestore.isFailure) proxyRestore else firewallRestore
+                    if (proxyRestore.isFailure) proxyRestore else firewallRestore
                 }
                 if (restoreResult.isSuccess) {
                     AdvancedOperationLog.info(context, "اكتملت معالجة الاستعادة؛ إيقاف الخدمة المحلية.")
@@ -1421,11 +1459,7 @@ class MainActivity : ComponentActivity() {
         AdvancedOperationLog.info(context, "========== طلب إيقاف البروكسي المتقدم ==========")
         val expectedProxy = "127.0.0.1:${ProxyLocalService.localPort(context)}"
         coroutineScope.launch(Dispatchers.IO) {
-            val languageRestore = AdvancedProxyLanguageController.restore(context)
-            val timezoneRestore = AdvancedProxyTimezoneController.restore(context)
-            val proxyRestore = if (languageRestore.isSuccess && timezoneRestore.isSuccess) {
-                AdvancedSystemProxy.restore(context, expectedProxy)
-            } else if (languageRestore.isFailure) languageRestore else timezoneRestore
+            val proxyRestore = AdvancedSystemProxy.restore(context, expectedProxy)
             // Restore even when ADB is unavailable; do not strand a device-wide firewall.
             val firewallRestore = RootWebRtcController.restore(context)
             val restoreResult = if (proxyRestore.isFailure) proxyRestore else firewallRestore
@@ -1433,11 +1467,12 @@ class MainActivity : ComponentActivity() {
                 firewallPending = RootWebRtcController.hasPendingRestore(context)
                 stopping = false
                 if (restoreResult.isSuccess) {
-                    AdvancedOperationLog.output(context, "استُعيدت لغة الهاتف والمنطقة الزمنية والبروكسي؛ جارٍ إيقاف خدمة البروكسي المحلي.")
+                    AdvancedOperationLog.output(context, "استُعيد بروكسي Android؛ جارٍ إيقاف خدمة البروكسي المحلي.")
+                    api.resetNetworkConnections()
                     ProxyLocalService.stop(context)
                     running = false
                 } else {
-                    AdvancedOperationLog.error(context, "تعذر إيقاف آمن: فشلت استعادة إعدادات البروكسي أو المنطقة الزمنية.")
+                    AdvancedOperationLog.error(context, "تعذر إيقاف آمن: فشلت استعادة إعدادات البروكسي.")
                     error = ProxyFailureMessages.advancedRestore(restoreResult.exceptionOrNull()?.message)
                 }
             }
@@ -1705,7 +1740,7 @@ class MainActivity : ComponentActivity() {
                         Text("المنطقة الزمنية", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text("يتم اكتشافها من البروكسي المحفوظ وتطبيقها مؤقتًا على الجهاز. لا تبدأ اتصال النظام.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            KUNPrimaryButton("تطبيق المنطقة", onClick = ::applyFeatureTimezone, enabled = wirelessReady && !featureLoading && !running, modifier = Modifier.weight(1f), loading = featureLoading && !AdvancedProxyTimezoneController.hasPendingRestore(context))
+                            KUNPrimaryButton("تطبيق المنطقة", onClick = ::applyFeatureTimezone, enabled = wirelessReady && !featureLoading, modifier = Modifier.weight(1f), loading = featureLoading && !AdvancedProxyTimezoneController.hasPendingRestore(context))
                             KUNSecondaryButton("استعادة الأصلية", onClick = ::restoreFeatureTimezone, enabled = wirelessReady && !featureLoading && AdvancedProxyTimezoneController.hasPendingRestore(context), modifier = Modifier.weight(1f))
                         }
                     }
@@ -1723,7 +1758,7 @@ class MainActivity : ComponentActivity() {
                             OutlinedTextField(longitude, { longitude = it }, Modifier.weight(1f), label = { Text("خط الطول") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            KUNPrimaryButton("تطبيق الموقع", onClick = ::startIndependentLocation, enabled = wirelessReady && selectedSavedProxyId != null && !featureLoading && !running, modifier = Modifier.weight(1f), loading = featureLoading)
+                            KUNPrimaryButton("تطبيق الموقع", onClick = ::startIndependentLocation, enabled = selectedSavedProxyId != null && !featureLoading, modifier = Modifier.weight(1f), loading = featureLoading)
                             KUNSecondaryButton("إيقاف الموقع", onClick = ::stopIndependentLocation, enabled = !featureLoading && mockLocationAuthorized == true, modifier = Modifier.weight(1f))
                         }
                         featureStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("تم")) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant) }

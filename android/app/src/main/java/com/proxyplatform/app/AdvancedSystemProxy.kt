@@ -11,6 +11,9 @@ internal object AdvancedSystemProxy {
     private val managedSettings = listOf(
         "global_http_proxy_host",
         "global_http_proxy_port",
+        "global_https_proxy_host",
+        "global_https_proxy_port",
+        "global_proxy_pac_url",
         "http_proxy",
     )
     private val proxyCleanupSettings = listOf(
@@ -31,8 +34,7 @@ internal object AdvancedSystemProxy {
      * anything, revokes ADB pairing, or changes language/timezone settings.
      */
     fun clearAll(context: Context): Result<Unit> = runCatching {
-        proxyCleanupSettings.forEach { key -> write(context, key, null).getOrThrow() }
-        write(context, "http_proxy", ":0").getOrThrow()
+        clearProxyKeys(context)
         check(ProxyRestorePolicy.isNoProxy(read(context, "http_proxy").getOrThrow())) {
             "تعذر إزالة إعداد بروكسي النظام."
         }
@@ -62,6 +64,11 @@ internal object AdvancedSystemProxy {
         }
 
         AdvancedOperationLog.info(context, "تعيين بروكسي النظام إلى $proxy.")
+        // Clear alternate Android proxy sources first. Some OEM builds prefer
+        // HTTPS/PAC over http_proxy and otherwise keep routing after stop.
+        proxyCleanupSettings.filter { it != "http_proxy" }.forEach { key ->
+            write(context, key, null).getOrThrow()
+        }
         write(context, "http_proxy", proxy).getOrThrow()
         val actual = read(context, "http_proxy").getOrThrow()
         check(actual == proxy) { "إعداد النظام '$actual' لا يطابق '$proxy'." }
@@ -83,9 +90,7 @@ internal object AdvancedSystemProxy {
         AdvancedOperationLog.info(context, "بدء استعادة إعدادات بروكسي Android السابقة.")
         if (!prefs.getBoolean(SNAPSHOT_SAVED, false)) {
             if (expectedProxy != null && read(context, "http_proxy").getOrThrow() == expectedProxy) {
-                write(context, "global_http_proxy_host", null).getOrThrow()
-                write(context, "global_http_proxy_port", null).getOrThrow()
-                write(context, "http_proxy", ":0").getOrThrow()
+                clearProxyKeys(context)
                 check(ProxyRestorePolicy.isNoProxy(read(context, "http_proxy").getOrThrow())) {
                     "تعذر تعطيل بروكسي النظام القديم."
                 }
@@ -144,6 +149,21 @@ internal object AdvancedSystemProxy {
             "settings put global $key ${shellQuote(value)}"
         }
         return WirelessDebuggingManager.executeCommandResult(context, command).map { Unit }
+    }
+
+    /**
+     * Android documents :0 as the explicit direct-proxy sentinel. Deleting
+     * the alternate keys as well fixes OEM builds that cache HTTPS/PAC values
+     * until the next Wi-Fi reconnect.
+     */
+    private fun clearProxyKeys(context: Context) {
+        proxyCleanupSettings.filter { it != "http_proxy" }.forEach { key ->
+            write(context, key, null).getOrThrow()
+        }
+        write(context, "http_proxy", ":0").getOrThrow()
+        // Re-apply the sentinel after deleting the companion keys; this makes
+        // the framework broadcast a direct-proxy state on affected devices.
+        write(context, "http_proxy", ":0").getOrThrow()
     }
 
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"

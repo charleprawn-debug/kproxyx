@@ -16,6 +16,7 @@ object SingBoxConfig {
         localPort: Int = 10808,
         blockWebRtc: Boolean = false,
         allowUdp: Boolean = false,
+        configFileName: String = CONFIG_FILE,
     ): File {
         val outbound = JSONObject()
             .put("type", if (protocol == "socks5") "socks" else protocol)
@@ -62,7 +63,7 @@ object SingBoxConfig {
                 .put("auto_detect_interface", false)
                 .put("final", "proxy"))
 
-        return File(context.filesDir, CONFIG_FILE).also {
+        return File(context.filesDir, configFileName).also {
             it.parentFile?.mkdirs()
             it.writeText(config.toString(2))
         }

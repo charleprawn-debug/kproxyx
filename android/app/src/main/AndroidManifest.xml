@@ -51,6 +51,15 @@
                 android:value="Long-running local proxy routing user-selected device traffic through a user-configured upstream proxy." />
         </service>
 
+        <service
+            android:name=".FeatureProxyService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Independent GeoIP helper for user-enabled mock location and timezone features; never changes system proxy settings." />
+        </service>
+
         <!--
             One-tap connection mode. android:permission + the VpnService
             intent-filter are what let Android show its single, built-in
