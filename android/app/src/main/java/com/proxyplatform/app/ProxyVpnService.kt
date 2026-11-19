@@ -12,9 +12,7 @@ import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
-import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OverrideOptions
-import io.nekohasekai.libbox.SetupOptions
 import io.nekohasekai.libbox.SystemProxyStatus
 import io.nekohasekai.libbox.TunOptions
 
@@ -174,20 +172,10 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
     }
 
     private fun setupLibbox() {
-        val working = getExternalFilesDir(null) ?: filesDir
-        Libbox.setup(SetupOptions().apply {
-            basePath = filesDir.path
-            workingPath = working.path
-            tempPath = cacheDir.path
-            fixAndroidStack = true
-            logMaxLines = 300
-            appVersion = BuildConfig.VERSION_CODE.toString()
-            appMarketingVersion = BuildConfig.VERSION_NAME
-            debug = BuildConfig.DEBUG
-        })
+        LibboxRuntime.ensure(this, logMaxLines = 300)
         AdvancedOperationLog.info(
             this,
-            "محرك sing-box=${Libbox.version()}، TUN stack=gvisor، MTU=${SingBoxConfig.TUN_MTU}."
+            "محرك sing-box مهيأ، TUN stack=gvisor، MTU=${SingBoxConfig.TUN_MTU}."
         )
     }
 

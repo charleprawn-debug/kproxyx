@@ -45,6 +45,8 @@ class ProxyLocationController(private val context: Context) {
     private var lastPoint: GeoPoint? = null
     private var lastSourceRefreshElapsed = 0L
 
+    fun isRunning(): Boolean = running
+
     @Suppress("DEPRECATION")
     fun checkMockLocationAccess(): Result<Unit> {
         return runCatching {

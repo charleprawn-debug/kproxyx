@@ -1042,6 +1042,12 @@ class MainActivity : ComponentActivity() {
         while (true) {
             rootAvailable = withContext(Dispatchers.IO) { RootWebRtcController.isRootAvailable() }
             firewallPending = RootWebRtcController.hasPendingRestore(context)
+            if (!featureLoading) {
+                val featureListenerReady = withContext(Dispatchers.IO) {
+                    FeatureProxyService.isListenerReady(context)
+                }
+                mockLocationAuthorized = locationController.isRunning() || featureListenerReady
+            }
             delay(2000)
         }
     }
@@ -1174,10 +1180,17 @@ class MainActivity : ComponentActivity() {
         check(selectedSavedProxyId != null && host.isNotBlank()) { "اختر بروكسيًا محفوظًا أولًا." }
         val parsedPort = port.toIntOrNull()
         check(parsedPort in 1..65535) { "بيانات البروكسي المختار غير صالحة." }
-        if (FeatureProxyService.isRunning(context)) return FeatureProxyService.localPort(context)
+        if (FeatureProxyService.isRunning(context) && FeatureProxyService.isListenerReady(context)) {
+            return FeatureProxyService.localPort(context)
+        }
+        if (FeatureProxyService.isRunning(context)) {
+            AdvancedOperationLog.info(context, "اكتُشفت حالة قديمة لخدمة الميزات؛ جارٍ تنظيفها قبل إعادة التشغيل.")
+            FeatureProxyService.stop(context)
+            delay(350)
+        }
         FeatureProxyService.start(context, protocol, host, parsedPort!!, if (auth) username else "", if (auth) password else "")
         repeat(40) {
-            if (FeatureProxyService.isRunning(context) && FeatureProxyService.localPort(context) > 0) return FeatureProxyService.localPort(context)
+            if (FeatureProxyService.isRunning(context) && FeatureProxyService.isListenerReady(context)) return FeatureProxyService.localPort(context)
             delay(250)
         }
         throw IllegalStateException(FeatureProxyService.lastError(context) ?: "تعذر تشغيل خدمة الميزات المستقلة.")
@@ -1759,7 +1772,7 @@ class MainActivity : ComponentActivity() {
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             KUNPrimaryButton("تطبيق الموقع", onClick = ::startIndependentLocation, enabled = selectedSavedProxyId != null && !featureLoading, modifier = Modifier.weight(1f), loading = featureLoading)
-                            KUNSecondaryButton("إيقاف الموقع", onClick = ::stopIndependentLocation, enabled = !featureLoading && mockLocationAuthorized == true, modifier = Modifier.weight(1f))
+                            KUNSecondaryButton("إيقاف الموقع", onClick = ::stopIndependentLocation, enabled = !featureLoading && (mockLocationAuthorized == true || locationController.isRunning() || FeatureProxyService.isRunning(context)), modifier = Modifier.weight(1f))
                         }
                         featureStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("تم")) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant) }
                         Text("قبل التطبيق: اختر البروكسي من تبويب الاتصال، ثم تأكد من اختيار Kun cloak كتطبيق موقع وهمي من خيارات المطوّر.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

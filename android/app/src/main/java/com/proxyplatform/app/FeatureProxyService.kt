@@ -13,12 +13,12 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
-import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OverrideOptions
-import io.nekohasekai.libbox.SetupOptions
 import io.nekohasekai.libbox.SystemProxyStatus
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.net.Socket
 import java.util.concurrent.Executors
 
 /**
@@ -36,16 +36,7 @@ class FeatureProxyService : Service(), CommandServerHandler {
         createNotificationChannel()
         runCatching {
             startForegroundCompat("تجهيز خدمة الموقع والمنطقة الزمنية")
-            Libbox.setup(SetupOptions().apply {
-                basePath = filesDir.path
-                workingPath = (getExternalFilesDir(null) ?: filesDir).path
-                tempPath = cacheDir.path
-                fixAndroidStack = true
-                logMaxLines = 100
-                appVersion = BuildConfig.VERSION_CODE.toString()
-                appMarketingVersion = BuildConfig.VERSION_NAME
-                debug = BuildConfig.DEBUG
-            })
+            LibboxRuntime.ensure(this, logMaxLines = 300)
             setupReady = true
         }.onFailure { failure ->
             Log.e(TAG, "Feature proxy setup failed", failure)
@@ -196,6 +187,15 @@ class FeatureProxyService : Service(), CommandServerHandler {
 
         fun localPort(context: Context): Int =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_LOCAL_PORT, 0)
+
+        fun isListenerReady(context: Context): Boolean {
+            val port = localPort(context)
+            if (!isRunning(context) || port !in 1..65535) return false
+            return runCatching {
+                Socket().use { it.connect(InetSocketAddress(LOOPBACK, port), 400) }
+                true
+            }.getOrDefault(false)
+        }
 
         fun lastError(context: Context): String? =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ERROR, null)

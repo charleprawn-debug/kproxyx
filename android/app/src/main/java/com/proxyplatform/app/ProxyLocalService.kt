@@ -13,9 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
-import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OverrideOptions
-import io.nekohasekai.libbox.SetupOptions
 import io.nekohasekai.libbox.SystemProxyStatus
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -145,17 +143,7 @@ class ProxyLocalService : Service(), CommandServerHandler {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun setupLibbox() {
-        val working = getExternalFilesDir(null) ?: filesDir
-        Libbox.setup(SetupOptions().apply {
-            basePath = filesDir.path
-            workingPath = working.path
-            tempPath = cacheDir.path
-            fixAndroidStack = true
-            logMaxLines = 300
-            appVersion = BuildConfig.VERSION_CODE.toString()
-            appMarketingVersion = BuildConfig.VERSION_NAME
-            debug = BuildConfig.DEBUG
-        })
+        LibboxRuntime.ensure(this, logMaxLines = 300)
     }
 
     @Suppress("DEPRECATION")
