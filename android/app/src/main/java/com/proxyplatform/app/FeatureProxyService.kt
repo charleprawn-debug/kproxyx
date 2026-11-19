@@ -36,7 +36,7 @@ class FeatureProxyService : Service(), CommandServerHandler {
         createNotificationChannel()
         runCatching {
             startForegroundCompat("تجهيز خدمة الموقع والمنطقة الزمنية")
-            LibboxRuntime.ensure(this, logMaxLines = 300)
+            LibboxRuntime.ensure(this, logMaxLines = 300, namespace = FEATURE_NAMESPACE)
             setupReady = true
         }.onFailure { failure ->
             Log.e(TAG, "Feature proxy setup failed", failure)
@@ -174,7 +174,8 @@ class FeatureProxyService : Service(), CommandServerHandler {
         const val EXTRA_USERNAME = "username"
         const val EXTRA_PASSWORD = "password"
         const val PREFS = "feature_proxy_service"
-        const val FEATURE_CONFIG_FILE = "FeatureConfig.json"
+        const val FEATURE_CONFIG_FILE = "feature_proxy/FeatureConfig.json"
+        private const val FEATURE_NAMESPACE = "feature_proxy"
         private const val KEY_RUNNING = "running"
         private const val KEY_LOCAL_PORT = "local_port"
         private const val KEY_ERROR = "last_error"
