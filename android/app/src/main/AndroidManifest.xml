@@ -54,6 +54,7 @@
         <service
             android:name=".FeatureProxyService"
             android:exported="false"
+            android:process=":feature_proxy"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"

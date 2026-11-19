@@ -1506,7 +1506,9 @@ class MainActivity : ComponentActivity() {
                 port,
                 username,
                 password,
-                includeMockLocationInbound = mockLocation && locationMode == "auto",
+                // Mock location owns a separate FeatureProxyService process.
+                // VPN must never add or depend on the legacy shared inbound.
+                includeMockLocationInbound = false,
                 blockWebRtc = false,
                 allowUdp = allowUdp,
             )

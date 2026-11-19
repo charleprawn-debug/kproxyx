@@ -179,7 +179,8 @@ class FeatureProxyService : Service(), CommandServerHandler {
         private const val KEY_LOCAL_PORT = "local_port"
         private const val KEY_ERROR = "last_error"
         private const val CHANNEL_ID = "feature_proxy_service"
-        private const val NOTIFICATION_ID = 7002
+        // Keep this distinct from ProxyVpnService, which may run at the same time.
+        private const val NOTIFICATION_ID = 7003
         private const val LOOPBACK = "127.0.0.1"
 
         fun isRunning(context: Context): Boolean =
