@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { localizeError, localizeEnglishMessage } from '../utils/errorMessages';
 import crypto from 'crypto';
 import config from '../config';
 import { supabaseAdmin, supabaseClient } from '../utils/supabase';
@@ -26,13 +27,13 @@ router.post('/register', async (req, res) => {
   const deviceFingerprintHashes = deviceHashes(req.body?.deviceId);
 
   if (!/^\S+@\S+\.\S+$/.test(email) || typeof password !== 'string' || password.length < 8) {
-    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Valid email and password of at least 8 characters are required' } });
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: localizeEnglishMessage(req, res, 'Valid email and password of at least 8 characters are required') } });
   }
-  if (!deviceFingerprintHash) return res.status(400).json({ error: { code: 'DEVICE_ID_REQUIRED', message: 'لا يمكن إنشاء الحساب دون التحقق من الجهاز.' } });
+  if (!deviceFingerprintHash) return res.status(400).json({ error: { code: 'DEVICE_ID_REQUIRED', message: localizeError(req, res, 'لا يمكن إنشاء الحساب دون التحقق من الجهاز.') } });
 
   const existingBinding = await supabaseAdmin.from('device_account_bindings').select('id').in('device_fingerprint_hash', deviceFingerprintHashes).limit(1).maybeSingle();
-  if (existingBinding.data) return res.status(409).json({ error: { code: 'DEVICE_ALREADY_REGISTERED', message: 'تم إنشاء حساب مسبقًا من هذا الجهاز. استخدم تسجيل الدخول للحساب الحالي.' } });
-  if (existingBinding.error && existingBinding.error.code !== 'PGRST116') return res.status(503).json({ error: { code: 'DEVICE_CHECK_UNAVAILABLE', message: 'تعذر التحقق من الجهاز حاليًا.' } });
+  if (existingBinding.data) return res.status(409).json({ error: { code: 'DEVICE_ALREADY_REGISTERED', message: localizeError(req, res, 'تم إنشاء حساب مسبقًا من هذا الجهاز. استخدم تسجيل الدخول للحساب الحالي.') } });
+  if (existingBinding.error && existingBinding.error.code !== 'PGRST116') return res.status(503).json({ error: { code: 'DEVICE_CHECK_UNAVAILABLE', message: localizeError(req, res, 'تعذر التحقق من الجهاز حاليًا.') } });
 
   // This application does not expose an email-verification flow. Confirm the
   // Auth user at creation time so the account can sign in immediately after
@@ -43,7 +44,7 @@ router.post('/register', async (req, res) => {
     email_confirm: true,
     user_metadata: { full_name: fullName ?? '' },
   });
-  if (created.error || !created.data.user) return res.status(400).json({ error: { code: 'REGISTRATION_FAILED', message: created.error?.message ?? 'Could not create user' } });
+  if (created.error || !created.data.user) return res.status(400).json({ error: { code: 'REGISTRATION_FAILED', message: created.error?.message ?? localizeEnglishMessage(req, res, 'Could not create user') } });
 
   const profile = await supabaseAdmin
     .from('users')
@@ -52,14 +53,14 @@ router.post('/register', async (req, res) => {
     .single();
   if (profile.error) {
     await supabaseAdmin.auth.admin.deleteUser(created.data.user.id);
-    return res.status(500).json({ error: { code: 'PROFILE_CREATE_FAILED', message: 'Could not create user profile' } });
+    return res.status(500).json({ error: { code: 'PROFILE_CREATE_FAILED', message: localizeEnglishMessage(req, res, 'Could not create user profile') } });
   }
   const binding = await supabaseAdmin.from('device_account_bindings').insert({ device_fingerprint_hash: deviceFingerprintHash, user_id: profile.data.id }).select('id').single();
   if (binding.error) {
     await supabaseAdmin.from('users').delete().eq('id', profile.data.id);
     await supabaseAdmin.auth.admin.deleteUser(created.data.user.id);
-    if (binding.error.code === '23505') return res.status(409).json({ error: { code: 'DEVICE_ALREADY_REGISTERED', message: 'تم إنشاء حساب مسبقًا من هذا الجهاز. استخدم تسجيل الدخول للحساب الحالي.' } });
-    return res.status(500).json({ error: { code: 'DEVICE_BINDING_FAILED', message: 'تعذر تثبيت الحساب على الجهاز.' } });
+    if (binding.error.code === '23505') return res.status(409).json({ error: { code: 'DEVICE_ALREADY_REGISTERED', message: localizeError(req, res, 'تم إنشاء حساب مسبقًا من هذا الجهاز. استخدم تسجيل الدخول للحساب الحالي.') } });
+    return res.status(500).json({ error: { code: 'DEVICE_BINDING_FAILED', message: localizeError(req, res, 'تعذر تثبيت الحساب على الجهاز.') } });
   }
   await supabaseAdmin.from('user_activity_logs').insert({
     user_id: profile.data.id,
@@ -75,7 +76,7 @@ router.post('/login', async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const { password } = req.body ?? {};
   const result = await supabaseClient.auth.signInWithPassword({ email, password });
-  if (result.error || !result.data.session) return res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect' } });
+  if (result.error || !result.data.session) return res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: localizeEnglishMessage(req, res, 'Email or password is incorrect') } });
   const { data: profile } = await supabaseAdmin.from('users').select('id').eq('auth_id', result.data.user?.id ?? '').maybeSingle();
   if (profile?.id) {
     await supabaseAdmin.from('user_activity_logs').insert({
@@ -94,13 +95,13 @@ router.post('/login', async (req, res) => {
 
 router.post('/refresh', async (req, res) => {
   const result = await supabaseClient.auth.refreshSession({ refresh_token: req.body?.refreshToken });
-  if (result.error || !result.data.session) return res.status(401).json({ error: { code: 'REFRESH_FAILED', message: 'Refresh token is invalid' } });
+  if (result.error || !result.data.session) return res.status(401).json({ error: { code: 'REFRESH_FAILED', message: localizeEnglishMessage(req, res, 'Refresh token is invalid') } });
   return res.json({ data: { accessToken: result.data.session.access_token, refreshToken: result.data.session.refresh_token, expiresAt: result.data.session.expires_at } });
 });
 
 router.post('/forgot-password', async (req, res) => {
   const email = normalizeEmail(req.body?.email);
-  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'أدخل بريدًا إلكترونيًا صالحًا.' } });
+  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: localizeError(req, res, 'أدخل بريدًا إلكترونيًا صالحًا.') } });
   await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: 'https://kuncloak.work.gd:10059/' });
   return res.json({ data: { message: 'إذا كان البريد مسجلًا، سيصلك رابط آمن لإعادة تعيين كلمة المرور.' } });
 });
@@ -110,12 +111,12 @@ router.post('/device-reset-password', async (req, res) => {
   const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
   const fingerprint = deviceHash(req.body?.deviceId);
   const fingerprints = deviceHashes(req.body?.deviceId);
-  if (!/^\S+@\S+\.\S+$/.test(email) || newPassword.length < 8 || !fingerprint) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'أدخل البريد وكلمة مرور جديدة صالحة.' } });
+  if (!/^\S+@\S+\.\S+$/.test(email) || newPassword.length < 8 || !fingerprint) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: localizeError(req, res, 'أدخل البريد وكلمة مرور جديدة صالحة.') } });
   const { data: profile } = await supabaseAdmin.from('users').select('id,auth_id').eq('email', email).maybeSingle();
   const { data: binding } = await supabaseAdmin.from('device_account_bindings').select('user_id').in('device_fingerprint_hash', fingerprints).limit(1).maybeSingle();
-  if (!profile || !binding || binding.user_id !== profile.id) return res.status(403).json({ error: { code: 'DEVICE_ACCOUNT_MISMATCH', message: 'هذا البريد غير مرتبط بهذا الجهاز.' } });
+  if (!profile || !binding || binding.user_id !== profile.id) return res.status(403).json({ error: { code: 'DEVICE_ACCOUNT_MISMATCH', message: localizeError(req, res, 'هذا البريد غير مرتبط بهذا الجهاز.') } });
   const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_id, { password: newPassword });
-  if (error) return res.status(503).json({ error: { code: 'PASSWORD_RESET_FAILED', message: 'تعذر تغيير كلمة المرور حاليًا.' } });
+  if (error) return res.status(503).json({ error: { code: 'PASSWORD_RESET_FAILED', message: localizeError(req, res, 'تعذر تغيير كلمة المرور حاليًا.') } });
   await supabaseAdmin.from('user_activity_logs').insert({ user_id: profile.id, action: 'device_password_reset', entity_type: 'user', entity_id: profile.id, metadata: { method: 'device_binding' } });
   return res.json({ data: { message: 'تم تغيير كلمة المرور بنجاح. استخدم كلمة المرور الجديدة لتسجيل الدخول.' } });
 });

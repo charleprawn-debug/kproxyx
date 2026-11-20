@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import config from './config';
+import { localizeEnglishMessage } from './utils/errorMessages';
 import { supabaseAdmin, testSupabaseConnection } from './utils/supabase';
 import authRoutes from './routes/auth';
 import productRoutes from './routes/products';
@@ -27,9 +28,9 @@ export function createApp() {
   app.get('/livez', (_req, res) => res.json({ status: 'ok' }));
   app.get('/readyz', async (_req, res) => { const ready = await testSupabaseConnection(); return res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready' }); });
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', version: '1.0.0', environment: config.env, timestamp: new Date().toISOString() }));
-  app.get('/api/v1/landing', async (_req, res) => {
+  app.get('/api/v1/landing', async (req, res) => {
     const { data, error } = await supabaseAdmin.from('app_settings').select('value').eq('key', 'landing_download_url').maybeSingle();
-    if (error) return res.json({ data: { downloadUrl: '' }, warning: 'Landing settings migration is pending' });
+    if (error) return res.json({ data: { downloadUrl: '' }, warning: localizeEnglishMessage(req, res, 'Landing settings migration is pending') });
     return res.json({ data: { downloadUrl: data?.value ?? '' } });
   });
   app.get('/api/v1/support-settings', async (_req, res) => {
@@ -53,8 +54,8 @@ export function createApp() {
   app.use('/api/v1/payments', paymentRoutes);
   app.get('/admin', (_req, res) => res.sendFile('index.html', { root: 'admin' }));
   app.get('/', (_req, res) => res.sendFile('index.html', { root: 'landing' }));
-  app.use((_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Endpoint not found' } }));
-  const errors: ErrorRequestHandler = (error, _req, res, _next) => res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: config.env === 'development' ? error.message : 'Internal server error' } });
+  app.use((req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: localizeEnglishMessage(req, res, 'Endpoint not found') } }));
+  const errors: ErrorRequestHandler = (error, req, res, _next) => res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: config.env === 'development' ? error.message : localizeEnglishMessage(req, res, 'Internal server error') } });
   app.use(errors);
   return app;
 }

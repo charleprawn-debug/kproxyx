@@ -65,7 +65,7 @@ class ProxyLocationController(private val context: Context) {
                 )
             }
             if (mode != AppOpsManager.MODE_ALLOWED) {
-                throw SecurityException("لم يفعّل Android OP_MOCK_LOCATION لهذا التطبيق (AppOp mode=$mode).")
+                throw SecurityException(tr("لم يفعّل Android OP_MOCK_LOCATION لهذا التطبيق (AppOp mode=$mode).", "Android has not enabled OP_MOCK_LOCATION for this app (AppOp mode=$mode)."))
             }
         }
     }
@@ -122,7 +122,7 @@ class ProxyLocationController(private val context: Context) {
     }
 
     private fun fetchProxyJsonThroughLocal(localPort: Int, purpose: String): JSONObject {
-        require(localPort in 1..65535) { "منفذ sing-box المحلي غير صالح: $localPort." }
+        require(localPort in 1..65535) { tr("منفذ sing-box المحلي غير صالح: $localPort.", "The local sing-box port is invalid: $localPort.") }
         waitForLoopbackListener(localPort)
         val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", localPort))
         val client = OkHttpClient.Builder()
@@ -154,7 +154,7 @@ class ProxyLocationController(private val context: Context) {
             }
         }
         throw IllegalStateException(
-            "لم يصبح منفذ sing-box المحلي 127.0.0.1:$port جاهزًا ضمن المهلة.",
+            tr("لم يصبح منفذ sing-box المحلي 127.0.0.1:$port جاهزًا ضمن المهلة.", "The local sing-box port 127.0.0.1:$port was not ready before the timeout."),
             lastFailure,
         )
     }
@@ -177,11 +177,14 @@ class ProxyLocationController(private val context: Context) {
                 val body = response.body?.string().orEmpty()
                 AdvancedOperationLog.info(context, "GeoIP response body size=${body.length} characters; raw body omitted for privacy.")
                 if (!response.isSuccessful) {
-                    error("فشل تحديد إعدادات بلد البروكسي عبر $routeDescription (HTTP ${response.code}).")
+                    error(tr("فشل تحديد إعدادات بلد البروكسي عبر $routeDescription (HTTP ${response.code}).", "Could not determine proxy country settings through $routeDescription (HTTP ${response.code})."))
                 }
                 val json = JSONObject(body)
                 if (!json.optBoolean("success", true)) {
-                    error("تعذر تحديد موقع البروكسي عبر $routeDescription: ${json.optString("message", "استجابة غير صالحة")}")
+                    error(tr(
+                        "تعذر تحديد موقع البروكسي عبر $routeDescription: ${json.optString("message", "استجابة غير صالحة")}",
+                        "Could not determine the proxy location via GeoIP through $routeDescription: ${json.optString("message", "Invalid response")}",
+                    ))
                 }
                 return json
             }
@@ -249,7 +252,7 @@ class ProxyLocationController(private val context: Context) {
                                 refreshedSource = true
                             }
                         } else {
-                            lastPoint ?: error("لا توجد إحداثيات محفوظة لإعادة نشرها.")
+                            lastPoint ?: error(tr("لا توجد إحداثيات محفوظة لإعادة نشرها.", "There are no saved coordinates to publish again."))
                         }
                         publish(point)
                         point
@@ -310,7 +313,7 @@ class ProxyLocationController(private val context: Context) {
             }
         }
         check(LocationManager.GPS_PROVIDER in synchronized(providerLock) { installedProviders.toSet() }) {
-            "لم يتمكن Android من تثبيت مزوّد GPS الوهمي."
+            tr("لم يتمكن Android من تثبيت مزوّد GPS الوهمي.", "Android could not install the mock GPS provider.")
         }
     }
 
@@ -320,13 +323,13 @@ class ProxyLocationController(private val context: Context) {
         requireCoarsePermissionForFusedMock()
         ensureFusedMockMode()
         val providers = synchronized(providerLock) { installedProviders.toList() }
-        check(providers.isNotEmpty()) { "لا توجد مزوّدات موقع وهمي مفعّلة." }
+        check(providers.isNotEmpty()) { tr("لا توجد مزوّدات موقع وهمي مفعّلة.", "No mock location providers are enabled.") }
         val wallTime = System.currentTimeMillis()
         val elapsedTime = SystemClock.elapsedRealtimeNanos()
         val fusedLocation = createLocation(LocationManager.GPS_PROVIDER, point, 12f, wallTime, elapsedTime)
         awaitGoogleTask(
             fusedLocationClient.setMockLocation(fusedLocation),
-            "تعذر إرسال الإحداثيات إلى Google Play Services Fused Location Provider",
+            tr("تعذر إرسال الإحداثيات إلى Google Play Services Fused Location Provider", "Could not send coordinates to the Google Play Services Fused Location Provider"),
         )
         providers.forEach { provider ->
             val accuracy = if (provider == LocationManager.GPS_PROVIDER) 12f else 80f
@@ -355,12 +358,12 @@ class ProxyLocationController(private val context: Context) {
         if (fusedMockModeEnabled) return
         requireCoarsePermissionForFusedMock()
         check(mockModePrefs.edit().putBoolean(KEY_FUSED_MOCK_MODE_PENDING, true).commit()) {
-            "تعذر حفظ حالة استعادة وضع الموقع المدمج."
+            tr("تعذر حفظ حالة استعادة وضع الموقع المدمج.", "Could not save the location recovery state.")
         }
         try {
             awaitGoogleTask(
                 fusedLocationClient.setMockMode(true),
-                "تعذر تفعيل وضع الموقع الوهمي في Google Play Services",
+                tr("تعذر تفعيل وضع الموقع الوهمي في Google Play Services", "Could not enable mock location mode in Google Play Services"),
             )
             fusedMockModeEnabled = true
             AdvancedOperationLog.output(context, "فعّل Google Play Services Fused mock mode ومسح موقعه المخزّن.")
@@ -368,7 +371,7 @@ class ProxyLocationController(private val context: Context) {
             val disabled = runCatching {
                 awaitGoogleTask(
                     fusedLocationClient.setMockMode(false),
-                    "تعذر إلغاء تفعيل Fused mock mode بعد فشل البدء",
+                    tr("تعذر إلغاء تفعيل Fused mock mode بعد فشل البدء", "Could not disable fused mock mode after startup failed"),
                 )
                 true
             }.getOrDefault(false)
@@ -377,7 +380,10 @@ class ProxyLocationController(private val context: Context) {
                 mockModePrefs.edit().remove(KEY_FUSED_MOCK_MODE_PENDING).commit()
             }
             throw IllegalStateException(
-                "لم يقبل Google Play Services الموقع الوهمي. تأكد أن Kun cloak هو تطبيق الموقع الوهمي المحدد وأن خدمات Google Play مفعّلة ومحدّثة. ${failure.message ?: ""}",
+                tr(
+                    "لم يقبل Google Play Services الموقع الوهمي. تأكد أن Kun cloak هو تطبيق الموقع الوهمي المحدد وأن خدمات Google Play مفعّلة ومحدّثة. ${failure.message ?: ""}",
+                    "Google Play Services did not accept the mock location. Make sure Kun cloak is selected as the mock location app and Google Play Services is enabled and up to date. ${failure.message ?: ""}",
+                ),
                 failure,
             )
         }
@@ -388,11 +394,11 @@ class ProxyLocationController(private val context: Context) {
         if (!fusedMockModeEnabled && !mockModePrefs.getBoolean(KEY_FUSED_MOCK_MODE_PENDING, false)) return
         awaitGoogleTask(
             fusedLocationClient.setMockMode(false),
-            "تعذر إيقاف وضع الموقع الوهمي في Google Play Services",
+            tr("تعذر إيقاف وضع الموقع الوهمي في Google Play Services", "Could not disable mock location mode in Google Play Services"),
         )
         fusedMockModeEnabled = false
         check(mockModePrefs.edit().remove(KEY_FUSED_MOCK_MODE_PENDING).commit()) {
-            "تم إيقاف Fused mock mode لكن تعذر مسح علامة الاستعادة."
+            tr("تم إيقاف Fused mock mode لكن تعذر مسح علامة الاستعادة.", "Fused mock mode was disabled, but the recovery marker could not be cleared.")
         }
         AdvancedOperationLog.info(context, "أوقف Google Play Services Fused mock mode ومسح الإحداثيات الوهمية المخزنة.")
     }
@@ -410,7 +416,7 @@ class ProxyLocationController(private val context: Context) {
         if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) !=
             PackageManager.PERMISSION_GRANTED
         ) {
-            throw SecurityException("يرجى منح إذن الموقع التقريبي لتطبيقات Google كي تستقبل إحداثيات الموقع الوهمي.")
+            throw SecurityException(tr("يرجى منح إذن الموقع التقريبي لتطبيقات Google كي تستقبل إحداثيات الموقع الوهمي.", "Grant approximate location permission so Google apps can receive mock location coordinates."))
         }
     }
 
@@ -465,8 +471,8 @@ class ProxyLocationController(private val context: Context) {
 
     private data class GeoPoint(val latitude: Double, val longitude: Double) {
         init {
-            require(latitude.isFinite() && latitude in -90.0..90.0) { "خط العرض يجب أن يكون بين -90 و90." }
-            require(longitude.isFinite() && longitude in -180.0..180.0) { "خط الطول يجب أن يكون بين -180 و180." }
+            require(latitude.isFinite() && latitude in -90.0..90.0) { tr("خط العرض يجب أن يكون بين -90 و90.", "Latitude must be between -90 and 90.") }
+            require(longitude.isFinite() && longitude in -180.0..180.0) { tr("خط الطول يجب أن يكون بين -180 و180.", "Longitude must be between -180 and 180.") }
         }
 
         fun asPair(): Pair<Double, Double> = latitude to longitude

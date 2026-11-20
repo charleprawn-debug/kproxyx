@@ -1,5 +1,7 @@
 package com.proxyplatform.app.adb
 
+import com.proxyplatform.app.tr
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -16,7 +18,7 @@ class AdbPairingActionReceiver : BroadcastReceiver() {
             .orEmpty()
         val pairingCode = PairingCodeInput.normalize(rawCode)
         if (pairingCode == null) {
-            AdbPairingNotifier.showPairing(context, "أدخل رمزًا صحيحًا مكوّنًا من 6 أرقام ثم حاول مجددًا.")
+            AdbPairingNotifier.showPairing(context, tr("أدخل رمزًا صحيحًا مكوّنًا من 6 أرقام ثم حاول مجددًا.", "Enter a valid 6-digit code and try again."))
             return
         }
 
@@ -27,7 +29,7 @@ class AdbPairingActionReceiver : BroadcastReceiver() {
         runCatching { ContextCompat.startForegroundService(context, serviceIntent) }
             .onFailure {
                 // Do not put the submitted code or credentials in logs or notifications.
-                AdbPairingNotifier.showPairing(context, "تعذر بدء خدمة الاقتران. افتح التطبيق وحاول مرة أخرى.")
+                AdbPairingNotifier.showPairing(context, tr("تعذر بدء خدمة الاقتران. افتح التطبيق وحاول مرة أخرى.", "Could not start the pairing service. Open the app and try again."))
             }
     }
 }

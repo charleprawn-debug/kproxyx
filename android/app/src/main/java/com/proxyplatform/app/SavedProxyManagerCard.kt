@@ -20,6 +20,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -56,7 +58,7 @@ internal fun SavedProxyManagerCard(
     var editorAuth by remember { mutableStateOf(false) }
     var editorUsername by remember { mutableStateOf("") }
     var editorPassword by remember { mutableStateOf("") }
-    var editorError by remember { mutableStateOf<String?>(null) }
+    var editorError by remember { mutableStateOf<(() -> String)?>(null) }
     var profileToDelete by remember { mutableStateOf<SavedProxy?>(null) }
     val selected = profiles.firstOrNull { it.id == selectedId }
 
@@ -103,9 +105,9 @@ internal fun SavedProxyManagerCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("بروكسياتي", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(tr("بروكسياتي", "My proxies"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        "اختر اتصالًا محفوظًا ليعمل في وضع VPN أو الوضع المتقدم.",
+                        tr("اختر اتصالًا محفوظًا ليعمل في وضع VPN أو الوضع المتقدم.", "Choose a saved connection to use in VPN or Advanced mode."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -115,7 +117,7 @@ internal fun SavedProxyManagerCard(
                     enabled = enabled,
                     contentPadding = PaddingValues(horizontal = 13.dp, vertical = 10.dp),
                     shape = RoundedCornerShape(14.dp),
-                ) { Text("إضافة +", fontWeight = FontWeight.SemiBold) }
+                ) { Text(tr("إضافة +", "+ Add"), fontWeight = FontWeight.SemiBold) }
             }
 
             if (profiles.isEmpty()) {
@@ -130,9 +132,9 @@ internal fun SavedProxyManagerCard(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text("لا توجد بروكسيات محفوظة", fontWeight = FontWeight.Bold)
+                        Text(tr("لا توجد بروكسيات محفوظة", "No saved proxies"), fontWeight = FontWeight.Bold)
                         Text(
-                            "أضف بيانات اتصال مرة واحدة، ثم اخترها واضغط تشغيل.",
+                            tr("أضف بيانات اتصال مرة واحدة، ثم اخترها واضغط تشغيل.", "Add connection details once, then select the proxy and press Start."),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -143,7 +145,7 @@ internal fun SavedProxyManagerCard(
                     enabled = enabled,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(15.dp),
-                ) { Text("إضافة أول بروكسي") }
+                ) { Text(tr("إضافة أول بروكسي", "Add your first proxy")) }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     profiles.forEach { profile ->
@@ -188,13 +190,13 @@ internal fun SavedProxyManagerCard(
                                     }
                                     Text(
                                         "${profile.protocol.uppercase()}  •  ${profile.endpoint}",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr),
                                         color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.82f)
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                     )
                                     Text(
-                                        if (profile.authenticationRequired) "مصادقة محفوظة بأمان" else "من دون مصادقة",
+                                        if (profile.authenticationRequired) tr("مصادقة محفوظة بأمان", "Authentication securely saved") else tr("من دون مصادقة", "No authentication"),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -205,14 +207,14 @@ internal fun SavedProxyManagerCard(
                                     enabled = enabled,
                                     contentPadding = PaddingValues(horizontal = 7.dp, vertical = 5.dp),
                                 ) {
-                                    Text("✎ تعديل", fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    Text(tr("✎ تعديل", "✎ Edit"), fontWeight = FontWeight.SemiBold, maxLines = 1)
                                 }
                                 TextButton(
                                     onClick = { profileToDelete = profile },
                                     enabled = enabled,
                                     contentPadding = PaddingValues(horizontal = 5.dp, vertical = 5.dp),
                                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                ) { Text("حذف", maxLines = 1) }
+                                ) { Text(tr("حذف", "Delete"), maxLines = 1) }
                             }
                         }
                     }
@@ -220,7 +222,7 @@ internal fun SavedProxyManagerCard(
             }
 
             Text(
-                "تُزامن ملفات الاتصال مع حسابك لتظهر على أجهزتك الأخرى، مع تشفير بيانات المصادقة محليًا وفي الخادم.",
+                tr("تُزامن ملفات الاتصال مع حسابك لتظهر على أجهزتك الأخرى، مع تشفير بيانات المصادقة محليًا وفي الخادم.", "Connection profiles sync with your account and appear on your other devices. Authentication details are encrypted locally and on the server."),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -230,14 +232,14 @@ internal fun SavedProxyManagerCard(
     if (editorOpen) {
         AlertDialog(
             onDismissRequest = { if (enabled) editorOpen = false },
-            title = { Text(if (editingId == null) "إضافة بروكسي" else "تعديل البروكسي") },
+            title = { Text(if (editingId == null) tr("إضافة بروكسي", "Add proxy") else tr("تعديل البروكسي", "Edit proxy")) },
             text = {
                 Column(
                     Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     Text(
-                        "أدخل البيانات مرة واحدة؛ ستظهر بعد ذلك في القائمة دون الحاجة لإعادة كتابتها.",
+                        tr("أدخل البيانات مرة واحدة؛ ستظهر بعد ذلك في القائمة دون الحاجة لإعادة كتابتها.", "Enter the details once; they will appear in the list without needing to be re-entered."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -245,12 +247,12 @@ internal fun SavedProxyManagerCard(
                         value = profileName,
                         onValueChange = { profileName = it.take(64); editorError = null },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("اسم البروكسي") },
+                        label = { Text(tr("اسم البروكسي", "Proxy name")) },
                         singleLine = true,
                         enabled = enabled,
                         shape = RoundedCornerShape(14.dp),
                     )
-                    Text("نوع الاتصال", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(tr("نوع الاتصال", "Connection type"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = editorProtocol == "socks5",
@@ -269,7 +271,8 @@ internal fun SavedProxyManagerCard(
                         value = editorHost,
                         onValueChange = { editorHost = it.trim(); editorError = null },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("عنوان الخادم أو IP") },
+                        label = { Text(tr("عنوان الخادم أو IP", "Server address or IP")) },
+                        textStyle = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                         singleLine = true,
                         enabled = enabled,
                         shape = RoundedCornerShape(14.dp),
@@ -278,7 +281,8 @@ internal fun SavedProxyManagerCard(
                         value = editorPort,
                         onValueChange = { editorPort = it.filter { digit -> digit in '0'..'9' }.take(5); editorError = null },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("المنفذ") },
+                        label = { Text(tr("المنفذ", "Port")) },
+                        textStyle = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                         singleLine = true,
                         enabled = enabled,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -286,14 +290,14 @@ internal fun SavedProxyManagerCard(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = editorAuth, onCheckedChange = { editorAuth = it; editorError = null }, enabled = enabled)
-                        Text("يتطلب اسم مستخدم وكلمة مرور", style = MaterialTheme.typography.bodyMedium)
+                        Text(tr("يتطلب اسم مستخدم وكلمة مرور", "Requires a username and password"), style = MaterialTheme.typography.bodyMedium)
                     }
                     if (editorAuth) {
                         OutlinedTextField(
                             value = editorUsername,
                             onValueChange = { editorUsername = it; editorError = null },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("اسم المستخدم") },
+                            label = { Text(tr("اسم المستخدم", "Username")) },
                             singleLine = true,
                             enabled = enabled,
                             shape = RoundedCornerShape(14.dp),
@@ -302,7 +306,7 @@ internal fun SavedProxyManagerCard(
                             value = editorPassword,
                             onValueChange = { editorPassword = it; editorError = null },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("كلمة المرور") },
+                            label = { Text(tr("كلمة المرور", "Password")) },
                             visualTransformation = PasswordVisualTransformation(),
                             singleLine = true,
                             enabled = enabled,
@@ -310,7 +314,7 @@ internal fun SavedProxyManagerCard(
                         )
                     }
                     if (editorError != null) {
-                        Text(editorError.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        Text(editorError?.invoke().orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             },
@@ -319,11 +323,11 @@ internal fun SavedProxyManagerCard(
                     onClick = {
                         val parsedPort = editorPort.toIntOrNull()
                         editorError = when {
-                            profileName.isBlank() -> "أدخل اسمًا يميّز هذا البروكسي."
-                            editorHost.isBlank() -> "أدخل عنوان خادم البروكسي."
-                            parsedPort == null || parsedPort !in 1..65535 -> "أدخل منفذًا بين 1 و65535."
-                            editorAuth && editorUsername.isBlank() -> "أدخل اسم المستخدم المطلوب للمصادقة."
-                            editorAuth && editorPassword.isEmpty() -> "أدخل كلمة المرور المطلوبة للمصادقة."
+                            profileName.isBlank() -> { { tr("أدخل اسمًا يميّز هذا البروكسي.", "Enter a name to identify this proxy.") } }
+                            editorHost.isBlank() -> { { tr("أدخل عنوان خادم البروكسي.", "Enter the proxy server address.") } }
+                            parsedPort == null || parsedPort !in 1..65535 -> { { tr("أدخل منفذًا بين 1 و65535.", "Enter a port between 1 and 65535.") } }
+                            editorAuth && editorUsername.isBlank() -> { { tr("أدخل اسم المستخدم المطلوب للمصادقة.", "Enter the username required for authentication.") } }
+                            editorAuth && editorPassword.isEmpty() -> { { tr("أدخل كلمة المرور المطلوبة للمصادقة.", "Enter the password required for authentication.") } }
                             else -> null
                         }
                         if (editorError == null) {
@@ -344,10 +348,10 @@ internal fun SavedProxyManagerCard(
                     },
                     enabled = enabled,
                     shape = RoundedCornerShape(13.dp),
-                ) { Text("حفظ") }
+                ) { Text(tr("حفظ", "Save")) }
             },
             dismissButton = {
-                TextButton(onClick = { editorOpen = false }, enabled = enabled) { Text("إلغاء") }
+                TextButton(onClick = { editorOpen = false }, enabled = enabled) { Text(tr("إلغاء", "Cancel")) }
             },
         )
     }
@@ -355,17 +359,17 @@ internal fun SavedProxyManagerCard(
     profileToDelete?.let { profile ->
         AlertDialog(
             onDismissRequest = { profileToDelete = null },
-            title = { Text("حذف البروكسي؟") },
-            text = { Text("سيُحذف «${profile.name}» وبيانات اعتماده المشفّرة من هذا الجهاز.") },
+            title = { Text(tr("حذف البروكسي؟", "Delete proxy?")) },
+            text = { Text(tr("سيُحذف «${profile.name}» وبيانات اعتماده المشفّرة من هذا الجهاز.", "“${profile.name}” and its encrypted credentials will be deleted from this device.")) },
             confirmButton = {
                 Button(
                     onClick = { onDelete(profile); profileToDelete = null },
                     enabled = enabled,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     shape = RoundedCornerShape(13.dp),
-                ) { Text("حذف") }
+                ) { Text(tr("حذف", "Delete")) }
             },
-            dismissButton = { TextButton(onClick = { profileToDelete = null }) { Text("إلغاء") } },
+            dismissButton = { TextButton(onClick = { profileToDelete = null }) { Text(tr("إلغاء", "Cancel")) } },
         )
     }
 }

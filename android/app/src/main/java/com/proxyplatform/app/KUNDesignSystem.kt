@@ -184,10 +184,10 @@ internal fun ExpandableDetails(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    var expanded by rememberSaveable(label) { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     Column(modifier.fillMaxWidth()) {
         TextButton(onClick = { expanded = !expanded }, modifier = Modifier.align(Alignment.Start)) {
-            Text(if (expanded) "إخفاء التفاصيل" else label, fontWeight = FontWeight.SemiBold)
+            Text(if (expanded) tr("إخفاء التفاصيل", "Hide details") else label, fontWeight = FontWeight.SemiBold)
         }
         AnimatedVisibility(visible = expanded) {
             Column(Modifier.fillMaxWidth(), content = content)

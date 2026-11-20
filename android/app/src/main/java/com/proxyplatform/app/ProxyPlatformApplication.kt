@@ -7,6 +7,7 @@ import android.os.Bundle
 class ProxyPlatformApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        AppLanguage.initialize(this)
         AdvancedOperationLog.installCrashHandler(this)
         AdvancedOperationLog.appStarted(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {

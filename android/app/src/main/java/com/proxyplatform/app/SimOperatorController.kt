@@ -84,7 +84,14 @@ internal class SimOperatorController(context: Context) {
             val item = array.optJSONObject(index) ?: return@mapNotNull null
             val configJson = item.optJSONObject("currentConfig") ?: JSONObject()
             val config = buildMap {
-                configJson.keys().forEach { key -> put(key, configJson.optString(key)) }
+                configJson.keys().forEach { key ->
+                    val displayKey = when (key) {
+                        "رمز البلد" -> tr("رمز البلد", "Country code")
+                        "اسم المشغّل" -> tr("اسم المشغّل", "Carrier name")
+                        else -> key
+                    }
+                    put(displayKey, configJson.optString(key))
+                }
             }
             SimCardInfo(
                 slot = item.optInt("slot"),
@@ -108,7 +115,7 @@ internal class SimOperatorController(context: Context) {
     ): Result<Unit> = runCatching {
         val validCountry = countryCode?.trim()?.takeIf { it.length == 2 && it.all(Char::isLetter) }
         val validCarrier = carrierName?.trim()?.takeIf { it.isNotEmpty() }
-        require(validCountry != null || validCarrier != null) { "اختر رمز بلد صحيحاً أو اسم مشغّل." }
+        require(validCountry != null || validCarrier != null) { tr("اختر رمز بلد صحيحاً أو اسم مشغّل.", "Choose a valid country code or carrier name.") }
         queueInstrumentation(
             "save",
             buildMap {
@@ -140,16 +147,16 @@ internal class SimOperatorController(context: Context) {
             .remove(SimCarrierPrefs.OUTCOME_SUCCESS)
             .remove(SimCarrierPrefs.OUTCOME_TIME)
             .commit()
-        if (success) return "نجح"
+        if (success) return tr("نجح", "Succeeded")
         val reason = when {
-            message.contains("مهلة") || message.contains("لم يصل رد Instrumentation") -> "انتهت مهلة التنفيذ؛ لم يصل تأكيد من Android."
+            message.contains("مهلة") || message.contains("لم يصل رد Instrumentation") || message.contains("timed out", ignoreCase = true) -> tr("انتهت مهلة التنفيذ؛ لم يصل تأكيد من Android.", "The operation timed out; Android did not send confirmation.")
             else -> message
                 .replace(Regex("^(?:فشلت عملية SIM عبر ADB|فشلت عملية CarrierConfig):\\s*"), "")
                 .replace(Regex("^تعذر بدء [^:]+:\\s*"), "")
-                .ifBlank { "تعذر إتمام العملية." }
+                .ifBlank { tr("تعذر إتمام العملية.", "Could not complete the operation.") }
                 .take(220)
         }
-        return "فشل: $reason"
+        return tr("فشل: $reason", "Failed: $reason")
     }
 
     private fun queueInstrumentation(operation: String, arguments: Map<String, String>) {
@@ -157,7 +164,7 @@ internal class SimOperatorController(context: Context) {
         // was submitted.  Clear only operations that are genuinely stale so a
         // normal in-flight command is still protected from a duplicate request.
         recoverStaleOperationIfNeeded()
-        check(!operationPending) { "هناك عملية SIM قيد التنفيذ؛ انتظر انتهاءها." }
+        check(!operationPending) { tr("هناك عملية SIM قيد التنفيذ؛ انتظر انتهاءها.", "A SIM operation is already in progress. Wait for it to finish.") }
         check(prefs.edit()
             .putBoolean(SimCarrierPrefs.OPERATION_PENDING, true)
             .putString(SimCarrierPrefs.OPERATION_KIND, operation)
@@ -165,7 +172,7 @@ internal class SimOperatorController(context: Context) {
             .remove(SimCarrierPrefs.OUTCOME_MESSAGE)
             .remove(SimCarrierPrefs.OUTCOME_SUCCESS)
             .remove(SimCarrierPrefs.OUTCOME_TIME)
-            .commit()) { "تعذر حفظ طلب العملية على الجهاز." }
+            .commit()) { tr("تعذر حفظ طلب العملية على الجهاز.", "Could not save the operation request on the device.") }
 
         val command = SimOperatorCommands.buildInstrumentationCommand(
             packageName = appContext.packageName,
@@ -215,7 +222,7 @@ internal class SimOperatorController(context: Context) {
         val resultReason = Regex("(?m)^INSTRUMENTATION_RESULT:.*(?:shortMsg|Error)=(.+)$")
             .find(output)?.groupValues?.getOrNull(1)?.trim()
         if (!resultReason.isNullOrBlank()) return resultReason
-        return "رفض Android تنفيذ أمر SIM."
+        return tr("رفض Android تنفيذ أمر SIM.", "Android refused to execute the SIM command.")
     }
 
     private fun recoverStaleOperationIfNeeded() {
@@ -265,13 +272,13 @@ class SimCarrierConfigInstrumentation : Instrumentation() {
         val automation = uiAutomation
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             result.putString("success", "false")
-            result.putString("error", "ميزة SIM عبر Wireless ADB تتطلب Android 11 أو أحدث.")
+            result.putString("error", tr("ميزة SIM عبر Wireless ADB تتطلب Android 11 أو أحدث.", "SIM operations over Wireless ADB require Android 11 or later."))
             finish(Activity.RESULT_CANCELED, result)
             return
         }
 
         try {
-            checkNotNull(automation) { "UiAutomation غير متاح داخل Instrumentation." }
+            checkNotNull(automation) { tr("UiAutomation غير متاح داخل Instrumentation.", "UiAutomation is unavailable inside Instrumentation.") }
             HiddenApiBypass.addHiddenApiExemptions("L")
             automation.adoptShellPermissionIdentity(
                 Manifest.permission.READ_PHONE_STATE,
@@ -279,7 +286,7 @@ class SimCarrierConfigInstrumentation : Instrumentation() {
             )
             adoptedShellIdentity = true
 
-            val operation = arguments.getString("operation") ?: error("نوع العملية غير محدد.")
+            val operation = arguments.getString("operation") ?: error(tr("نوع العملية غير محدد.", "The operation type was not specified."))
             val service = CarrierConfigService.connect()
             val subscriptions = readSimCards(service)
             when (operation) {
@@ -288,9 +295,9 @@ class SimCarrierConfigInstrumentation : Instrumentation() {
                     finishOperation(success = true, message = "تم تحديث قائمة الشرائح وقراءة CarrierConfig الحالي.")
                 }
                 "save" -> {
-                    val subId = arguments.getString("subId")?.toIntOrNull() ?: error("معرّف SIM غير صالح.")
-                    val slot = arguments.getString("slot")?.toIntOrNull() ?: error("رقم منفذ SIM غير صالح.")
-                    check(subscriptions.any { it.subscriptionId == subId }) { "الشريحة المحددة لم تعد نشطة؛ حدّث القائمة." }
+                    val subId = arguments.getString("subId")?.toIntOrNull() ?: error(tr("معرّف SIM غير صالح.", "The SIM identifier is invalid."))
+                    val slot = arguments.getString("slot")?.toIntOrNull() ?: error(tr("رقم منفذ SIM غير صالح.", "The SIM slot number is invalid."))
+                    check(subscriptions.any { it.subscriptionId == subId }) { tr("الشريحة المحددة لم تعد نشطة؛ حدّث القائمة.", "The selected SIM is no longer active. Refresh the list.") }
                     val countryCode = arguments.getString("countryCode")
                     val carrierName = arguments.getString("carrierName")
                     val bundle = buildNrfrOverride(countryCode, carrierName)
@@ -303,8 +310,8 @@ class SimCarrierConfigInstrumentation : Instrumentation() {
                     finishOperation(success = true, message = "تم حفظ CarrierConfig للشريحة SIM $slot كما في NRFR.")
                 }
                 "reset" -> {
-                    val subId = arguments.getString("subId")?.toIntOrNull() ?: error("معرّف SIM غير صالح.")
-                    val slot = arguments.getString("slot")?.toIntOrNull() ?: error("رقم منفذ SIM غير صالح.")
+                    val subId = arguments.getString("subId")?.toIntOrNull() ?: error(tr("معرّف SIM غير صالح.", "The SIM identifier is invalid."))
+                    val slot = arguments.getString("slot")?.toIntOrNull() ?: error(tr("رقم منفذ SIM غير صالح.", "The SIM slot number is invalid."))
                     service.overrideConfig(subId, null, true)
                     SimOperationLog.info(
                         context,
@@ -313,7 +320,7 @@ class SimCarrierConfigInstrumentation : Instrumentation() {
                     saveSimCards(readSimCards(service))
                     finishOperation(success = true, message = "تم حذف CarrierConfig override للشريحة SIM $slot.")
                 }
-                else -> error("عملية غير مدعومة: $operation")
+                else -> error(tr("عملية غير مدعومة: $operation", "Unsupported operation: $operation"))
             }
             result.putString("success", "true")
         } catch (failure: Throwable) {
@@ -340,9 +347,9 @@ class SimCarrierConfigInstrumentation : Instrumentation() {
     @SuppressLint("MissingPermission")
     private fun readSimCards(service: CarrierConfigService): List<SimCardInfo> {
         val subscriptionManager = context.getSystemService(SubscriptionManager::class.java)
-            ?: error("خدمة إدارة الشرائح غير متاحة.")
+            ?: error(tr("خدمة إدارة الشرائح غير متاحة.", "The subscription management service is unavailable."))
         val telephonyManager = context.getSystemService(TelephonyManager::class.java)
-            ?: error("خدمة الهاتف غير متاحة.")
+            ?: error(tr("خدمة الهاتف غير متاحة.", "The telephony service is unavailable."))
         val result = mutableListOf<SimCardInfo>()
         val activeSubscriptions = runCatching {
             subscriptionManager.activeSubscriptionInfoList.orEmpty()
@@ -428,7 +435,7 @@ class SimCarrierConfigInstrumentation : Instrumentation() {
         check(prefs.edit()
             .putString(SimCarrierPrefs.SIM_CARDS_JSON, array.toString())
             .putLong(SimCarrierPrefs.SIM_CACHE_TIME, System.currentTimeMillis())
-            .commit()) { "تعذر حفظ بيانات الشرائح محلياً." }
+            .commit()) { tr("تعذر حفظ بيانات الشرائح محلياً.", "Could not save SIM data locally.") }
     }
 
     private fun finishOperation(success: Boolean, message: String) {
@@ -439,7 +446,7 @@ class SimCarrierConfigInstrumentation : Instrumentation() {
             .putString(SimCarrierPrefs.OUTCOME_MESSAGE, message)
             .putBoolean(SimCarrierPrefs.OUTCOME_SUCCESS, success)
             .putLong(SimCarrierPrefs.OUTCOME_TIME, System.currentTimeMillis())
-            .commit()) { "تعذر حفظ نتيجة العملية." }
+            .commit()) { tr("تعذر حفظ نتيجة العملية.", "Could not save the operation result.") }
     }
 
     private fun Throwable.rootCause(): Throwable {
@@ -482,21 +489,21 @@ class SimCarrierConfigInstrumentation : Instrumentation() {
                 val serviceManager = initializer.getDeclaredMethod("getTelephonyServiceManager")
                     .apply { isAccessible = true }
                     .invoke(null)
-                    ?: error("TelephonyServiceManager غير متاح.")
+                    ?: error(tr("TelephonyServiceManager غير متاح.", "TelephonyServiceManager is unavailable."))
                 val registerer = serviceManager.javaClass.getDeclaredMethod("getCarrierConfigServiceRegisterer")
                     .apply { isAccessible = true }
                     .invoke(serviceManager)
-                    ?: error("CarrierConfig service registerer غير متاح.")
+                    ?: error(tr("CarrierConfig service registerer غير متاح.", "The CarrierConfig service registerer is unavailable."))
                 val binder = registerer.javaClass.getDeclaredMethod("get")
                     .apply { isAccessible = true }
                     .invoke(registerer) as? IBinder
-                    ?: error("Binder خدمة CarrierConfig غير متاح.")
+                    ?: error(tr("Binder خدمة CarrierConfig غير متاح.", "The CarrierConfig service Binder is unavailable."))
                 val interfaceClass = Class.forName("com.android.internal.telephony.ICarrierConfigLoader")
                 val stubClass = Class.forName("com.android.internal.telephony.ICarrierConfigLoader\$Stub")
                 val loader = stubClass.getDeclaredMethod("asInterface", IBinder::class.java)
                     .apply { isAccessible = true }
                     .invoke(null, binder)
-                    ?: error("تعذر إنشاء واجهة ICarrierConfigLoader.")
+                    ?: error(tr("تعذر إنشاء واجهة ICarrierConfigLoader.", "Could not create the ICarrierConfigLoader interface."))
                 return CarrierConfigService(loader, interfaceClass)
             }
         }

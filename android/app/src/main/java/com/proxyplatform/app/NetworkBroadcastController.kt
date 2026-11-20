@@ -41,7 +41,7 @@ internal object NetworkBroadcastController {
         runCatching {
             require(isServerReady(context) ||
                 WirelessDebuggingManager.checkState(context) == WirelessDebuggingManager.DebuggingState.READY) {
-                "اتصال Wireless ADB غير جاهز. افتح صفحة ADB وأعد الاتصال."
+                tr("اتصال Wireless ADB غير جاهز. افتح صفحة ADB وأعد الاتصال.", "Wireless ADB is not ready. Open the ADB page and reconnect.")
             }
             appendLog(context, "START requested; reusing embedded server or launching it through Wireless ADB")
             server(context).start().getOrThrow()

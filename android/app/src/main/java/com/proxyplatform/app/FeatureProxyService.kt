@@ -37,12 +37,12 @@ class FeatureProxyService : Service(), CommandServerHandler {
         super.onCreate()
         createNotificationChannel()
         runCatching {
-            startForegroundCompat("تجهيز خدمة الموقع والمنطقة الزمنية")
+            startForegroundCompat(tr("تجهيز خدمة الموقع والمنطقة الزمنية", "Preparing the location and time zone service"))
             LibboxRuntime.ensure(this, logMaxLines = 300, namespace = FEATURE_NAMESPACE)
             setupReady = true
         }.onFailure { failure ->
             Log.e(TAG, "Feature proxy setup failed", failure)
-            recordError("تعذر تشغيل خدمة الميزات: ${failure.rootCauseMessage()}")
+            recordError(tr("تعذر تشغيل خدمة الميزات: ${failure.rootCauseMessage()}", "Could not start the features service: ${failure.rootCauseMessage()}"))
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -65,7 +65,7 @@ class FeatureProxyService : Service(), CommandServerHandler {
         val username = intent?.getStringExtra(EXTRA_USERNAME)?.trim().orEmpty()
         val password = intent?.getStringExtra(EXTRA_PASSWORD).orEmpty()
         if (host.isBlank() || port !in 1..65535 || protocol !in setOf("http", "socks", "socks5")) {
-            recordError("بيانات بروكسي الميزات غير صالحة.")
+            recordError(tr("بيانات بروكسي الميزات غير صالحة.", "The features proxy details are invalid."))
             stopSelf()
             return
         }
@@ -84,10 +84,10 @@ class FeatureProxyService : Service(), CommandServerHandler {
             server.startOrReloadService(config.readText(), OverrideOptions().apply { autoRedirect = false })
             writeState(running = true, localPort = localPort, error = null)
             getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, notification("خدمة الموقع والمنطقة الزمنية نشطة"))
+                .notify(NOTIFICATION_ID, notification(tr("خدمة الموقع والمنطقة الزمنية نشطة", "Location and time zone service is active")))
         } catch (failure: Exception) {
             Log.e(TAG, "Feature proxy startup failed", failure)
-            recordError("تعذر تشغيل خدمة الميزات: ${failure.rootCauseMessage()}")
+            recordError(tr("تعذر تشغيل خدمة الميزات: ${failure.rootCauseMessage()}", "Could not start the features service: ${failure.rootCauseMessage()}"))
             stopTunnel()
         }
     }
@@ -166,7 +166,7 @@ class FeatureProxyService : Service(), CommandServerHandler {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "ميزات الموقع والمنطقة الزمنية", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL_ID, tr("ميزات الموقع والمنطقة الزمنية", "Location and time zone features"), NotificationManager.IMPORTANCE_LOW)
             )
         }
     }

@@ -1,5 +1,7 @@
 package com.proxyplatform.app.adb
 
+import com.proxyplatform.app.tr
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -33,11 +35,11 @@ object AdbPairingNotifier {
         }.getOrDefault(false)
     }
 
-    fun progressNotification(context: Context, statusText: String = "جارٍ الاقتران والاتصال عبر Wireless ADB…"): Notification {
+    fun progressNotification(context: Context, statusText: String = tr("جارٍ الاقتران والاتصال عبر Wireless ADB…", "Pairing and connecting through Wireless ADB…")): Notification {
         ensureChannel(context)
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_transparent)
-            .setContentTitle("اقتران Kun cloak")
+            .setContentTitle(tr("اقتران Kun cloak", "Pair Kun cloak"))
             .setContentText(statusText)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOnlyAlertOnce(true)
@@ -64,8 +66,8 @@ object AdbPairingNotifier {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_transparent)
-            .setContentTitle("تم اقتران Kun cloak بنجاح")
-            .setContentText("أصبح التصحيح اللاسلكي جاهزًا. ارجع للتطبيق لتشغيل الوضع المتقدم.")
+            .setContentTitle(tr("تم اقتران Kun cloak بنجاح", "Kun cloak paired successfully"))
+            .setContentText(tr("أصبح التصحيح اللاسلكي جاهزًا. ارجع للتطبيق لتشغيل الوضع المتقدم.", "Wireless debugging is ready. Return to the app to start advanced mode."))
             .setContentIntent(openPendingIntent)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -77,7 +79,7 @@ object AdbPairingNotifier {
     private fun pairingNotification(context: Context, statusText: String?): Notification {
         ensureChannel(context)
         val remoteInput = RemoteInput.Builder(REMOTE_INPUT_KEY)
-            .setLabel("رمز الاقتران — 6 أرقام")
+            .setLabel(tr("رمز الاقتران — 6 أرقام", "Pairing code — 6 digits"))
             .setAllowFreeFormInput(true)
             .build()
         val replyIntent = Intent(context, AdbPairingActionReceiver::class.java).apply {
@@ -92,7 +94,7 @@ object AdbPairingNotifier {
         )
         val replyAction = NotificationCompat.Action.Builder(
             R.drawable.ic_nav_proxy,
-            "إدخال الرمز والاقتران",
+            tr("إدخال الرمز والاقتران", "Enter code and pair"),
             replyPendingIntent,
         )
             .addRemoteInput(remoteInput)
@@ -111,8 +113,8 @@ object AdbPairingNotifier {
         )
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_transparent)
-            .setContentTitle("اقتران Kun cloak")
-            .setContentText(statusText ?: "أدخل رمز Wireless debugging من الإشعار دون فتح التطبيق")
+            .setContentTitle(tr("اقتران Kun cloak", "Pair Kun cloak"))
+            .setContentText(statusText ?: tr("أدخل رمز Wireless debugging من الإشعار دون فتح التطبيق", "Enter the Wireless debugging code in the notification without opening the app"))
             .setContentIntent(openPendingIntent)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setOnlyAlertOnce(true)
@@ -126,10 +128,10 @@ object AdbPairingNotifier {
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "اقتران التصحيح اللاسلكي",
+                tr("اقتران التصحيح اللاسلكي", "Wireless debugging pairing"),
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
-                description = "إدخال رمز اقتران Android من الإشعار ومتابعة الاتصال"
+                description = tr("إدخال رمز اقتران Android من الإشعار ومتابعة الاتصال", "Enter the Android pairing code from the notification and follow the connection status")
                 setShowBadge(false)
             },
         )

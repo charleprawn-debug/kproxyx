@@ -22,6 +22,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -98,9 +100,9 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
         val result = withContext(Dispatchers.IO) { controller.refreshSimCards() }
         result.onSuccess {
             simCards = controller.readSimCards()
-            message = "تم التحديث"
+            message = tr("تم التحديث", "Updated")
         }.onFailure {
-            message = "فشل: ${it.message ?: it.javaClass.simpleName}"
+            message = tr("فشل: ${it.message ?: it.javaClass.simpleName}", "Failed: ${it.message ?: it.javaClass.simpleName}")
         }
         return result.isSuccess
     }
@@ -151,15 +153,15 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
             persistUiState()
         }
         controller.consumeOperationMessage()?.let { message = it }
-        if (controller.operationPending) message = "جارٍ التنفيذ…"
+        if (controller.operationPending) message = tr("جارٍ التنفيذ…", "In progress…")
         refreshSimData()
     }
 
     if (!adbReady) {
         AdbRequiredPanel(
             modifier = Modifier.fillMaxSize().padding(padding),
-            title = "إعدادات الشريحة",
-            description = "تستخدم هذه الصفحة اتصال Wireless ADB المشترك لتنفيذ عمليات SIM بأمان.",
+            title = tr("إعدادات الشريحة", "SIM settings"),
+            description = tr("تستخدم هذه الصفحة اتصال Wireless ADB المشترك لتنفيذ عمليات SIM بأمان.", "This page uses the shared Wireless ADB connection to perform SIM operations safely."),
             onGoToAdb = onGoToAdb,
         )
         return
@@ -172,9 +174,9 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("إعدادات الشريحة", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+                Text(tr("إعدادات الشريحة", "SIM settings"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
                 Text(
-                    "اختر الدولة واسم المشغّل ثم طبّق الإعدادات بسهولة.",
+                    tr("اختر الدولة واسم المشغّل ثم طبّق الإعدادات بسهولة.", "Choose a country and carrier, then apply the settings."),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -192,7 +194,7 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text("اختيار SIM", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Text(tr("اختيار SIM", "Select SIM"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                         TextButton(
                             onClick = {
                                 scope.launch {
@@ -203,10 +205,10 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                                 }
                             },
                             enabled = connected && !busy && !controller.operationPending,
-                        ) { Text("تحديث الشرائح") }
+                        ) { Text(tr("تحديث الشرائح", "Refresh SIMs")) }
                     }
                     if (simCards.isEmpty()) {
-                        Text("لم يتم العثور على شريحة. حدّث القائمة.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(tr("لم يتم العثور على شريحة. حدّث القائمة.", "No SIM found. Refresh the list."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         simCards.forEach { sim ->
                             FilterChip(
@@ -216,7 +218,7 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                                     persistUiState()
                                 },
                                 enabled = !busy && !controller.operationPending,
-                                label = { Text("SIM ${sim.slot} • ${sim.carrierName.ifBlank { "مشغّل غير معروف" }}") },
+                                label = { Text("SIM ${sim.slot} • ${sim.carrierName.ifBlank { tr("مشغّل غير معروف", "Unknown carrier") }}") },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -232,12 +234,12 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Text("الإعداد الحالي — SIM ${sim.slot}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Text(tr("الإعداد الحالي — SIM ${sim.slot}", "Current settings — SIM ${sim.slot}"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                         if (sim.currentConfig.isEmpty()) {
-                            Text("لا يوجد override ظاهر حالياً.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(tr("لا يوجد override ظاهر حالياً.", "No override is currently shown."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
-                            Text("يوجد إعداد مخصص لهذه الشريحة.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            ExpandableDetails("عرض تفاصيل الإعداد الحالي") {
+                            Text(tr("يوجد إعداد مخصص لهذه الشريحة.", "This SIM has a custom configuration."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            ExpandableDetails(tr("عرض تفاصيل الإعداد الحالي", "Show current configuration details")) {
                                 sim.currentConfig.forEach { (key, value) -> Text("$key: $value", style = MaterialTheme.typography.bodyMedium) }
                             }
                         }
@@ -252,10 +254,10 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("رمز البلد", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(tr("رمز البلد", "Country code"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     Box(Modifier.fillMaxWidth()) {
                         OutlinedButton(onClick = { countryMenuExpanded = true }, modifier = Modifier.fillMaxWidth(), enabled = !controller.operationPending) {
-                            val countryLabel = if (isCustomCountryCode) "مخصص" else SimNrfrPresets.countries.firstOrNull { it.code == selectedCountryCode }?.let { "${it.label} (${it.code})" } ?: "اختر دولة"
+                            val countryLabel = if (isCustomCountryCode) tr("مخصص", "Custom") else SimNrfrPresets.countries.firstOrNull { it.code == selectedCountryCode }?.let { "${it.label} (${it.code})" } ?: tr("اختر دولة", "Select a country")
                             Text(countryLabel)
                         }
                         DropdownMenu(
@@ -276,7 +278,7 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("مخصص") },
+                                text = { Text(tr("مخصص", "Custom")) },
                                 onClick = {
                                     isCustomCountryCode = true
                                     countryMenuExpanded = false
@@ -295,8 +297,9 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                                     persistUiState()
                                 }
                             },
-                            label = { Text("رمز ISO مخصص — حرفان") },
+                            label = { Text(tr("رمز ISO مخصص — حرفان", "Custom ISO code — 2 letters")) },
                             modifier = Modifier.fillMaxWidth(),
+                            textStyle = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
@@ -313,10 +316,10 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("اسم المشغّل", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(tr("اسم المشغّل", "Carrier name"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     Box(Modifier.fillMaxWidth()) {
                         OutlinedButton(onClick = { carrierMenuExpanded = true }, modifier = Modifier.fillMaxWidth(), enabled = !controller.operationPending) {
-                            Text(selectedCarrier?.label ?: "اختر مشغّلاً")
+                            Text(if (selectedCarrier?.custom == true) tr("مخصص", "Custom") else selectedCarrier?.label ?: tr("اختر مشغّلاً", "Select a carrier"))
                         }
                         DropdownMenu(
                             expanded = carrierMenuExpanded,
@@ -340,7 +343,7 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                                 }
                             }
                             DropdownMenuItem(
-                                text = { Text("مخصص") },
+                                text = { Text(tr("مخصص", "Custom")) },
                                 onClick = {
                                     selectedCarrierId = SimNrfrPresets.carriers.first { it.custom }.id
                                     carrierMenuExpanded = false
@@ -356,7 +359,7 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                                 customCarrierName = it
                                 persistUiState()
                             },
-                            label = { Text("اسم المشغّل المخصص") },
+                            label = { Text(tr("اسم المشغّل المخصص", "Custom carrier name")) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             enabled = !controller.operationPending,
@@ -368,8 +371,8 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
         if (controller.operationPending) {
             item {
                 NoticeCard(
-                    title = "جاري التطبيق",
-                    body = "يتم تطبيق الإعدادات الآن. يرجى الانتظار.",
+                    title = tr("جاري التطبيق", "Applying settings"),
+                    body = tr("يتم تطبيق الإعدادات الآن. يرجى الانتظار.", "Settings are being applied. Please wait."),
                     color = KunPalette.WarningSoft,
                     textColor = KunPalette.Ink,
                 )
@@ -378,13 +381,13 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 KUNSecondaryButton(
-                    text = "مسح الإعدادات",
+                    text = tr("مسح الإعدادات", "Clear"),
                     onClick = { showResetConfirmation = true },
                     enabled = selectedSim != null && connected && !busy && !controller.operationPending,
                     modifier = Modifier.weight(1f).height(52.dp),
                 )
                 KUNPrimaryButton(
-                    text = "تطبيق الإعدادات",
+                    text = tr("تطبيق الإعدادات", "Apply"),
                     loading = busy,
                     onClick = {
                         val sim = selectedSim ?: return@KUNPrimaryButton
@@ -397,7 +400,10 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                         scope.launch {
                             busy = true
                             val result = withContext(Dispatchers.IO) { controller.saveCarrierConfig(sim, country, carrierName) }
-                            message = if (result.isSuccess) "جارٍ التنفيذ…" else controller.consumeOperationMessage() ?: "فشل: ${result.exceptionOrNull()?.message ?: "تعذر تنفيذ العملية."}"
+                            message = if (result.isSuccess) tr("جارٍ التنفيذ…", "In progress…") else controller.consumeOperationMessage() ?: run {
+                                val detail = result.exceptionOrNull()?.message ?: tr("تعذر تنفيذ العملية.", "Unable to complete the operation.")
+                                tr("فشل: $detail", "Failed: $detail")
+                            }
                             busy = false
                             if (result.isSuccess) waitForOperationResult()
                         }
@@ -416,8 +422,8 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
     if (showResetConfirmation) {
         AlertDialog(
             onDismissRequest = { showResetConfirmation = false },
-            title = { Text("تأكيد مسح الإعدادات") },
-            text = { Text("سيُحذف إعداد CarrierConfig المخصص لهذه الشريحة. هل تريد المتابعة؟") },
+            title = { Text(tr("تأكيد مسح الإعدادات", "Confirm clear settings")) },
+            text = { Text(tr("سيُحذف إعداد CarrierConfig المخصص لهذه الشريحة. هل تريد المتابعة؟", "The custom CarrierConfig for this SIM will be removed. Continue?")) },
             confirmButton = {
                 TextButton(
                     enabled = !busy,
@@ -428,14 +434,17 @@ internal fun SimScreen(padding: PaddingValues, adbReady: Boolean, onGoToAdb: () 
                             busy = true
                             val result = withContext(Dispatchers.IO) { controller.resetCarrierConfig(sim) }
                             if (result.isSuccess) clearSelections()
-                            message = if (result.isSuccess) "جارٍ التنفيذ…" else controller.consumeOperationMessage() ?: "فشل: ${result.exceptionOrNull()?.message ?: "تعذر تنفيذ العملية."}"
+                            message = if (result.isSuccess) tr("جارٍ التنفيذ…", "In progress…") else controller.consumeOperationMessage() ?: run {
+                                val detail = result.exceptionOrNull()?.message ?: tr("تعذر تنفيذ العملية.", "Unable to complete the operation.")
+                                tr("فشل: $detail", "Failed: $detail")
+                            }
                             busy = false
                             if (result.isSuccess) waitForOperationResult()
                         }
                     },
-                ) { Text("مسح", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
+                ) { Text(tr("مسح", "Clear"), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
             },
-            dismissButton = { TextButton(onClick = { showResetConfirmation = false }) { Text("إلغاء") } },
+            dismissButton = { TextButton(onClick = { showResetConfirmation = false }) { Text(tr("إلغاء", "Cancel")) } },
         )
     }
 }
@@ -451,8 +460,9 @@ private fun NoticeCard(title: String, body: String, color: Color, textColor: Col
 
 @Composable
 private fun InlineMessage(message: String) {
-    val success = message.startsWith("نجح") || message.startsWith("تم التحديث")
-    val failure = message.startsWith("فشل") || message.startsWith("تعذر")
+    val success = message.startsWith("نجح") || message.startsWith("تم التحديث") ||
+        message.startsWith("Succeeded") || message.startsWith("Updated")
+    val failure = message.startsWith("فشل") || message.startsWith("تعذر") || message.startsWith("Failed:")
     val container = when {
         success -> KunPalette.SuccessSoft
         failure -> KunPalette.ErrorSoft

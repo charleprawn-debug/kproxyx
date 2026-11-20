@@ -18,14 +18,14 @@ internal object AdvancedProxyTimezoneController {
     fun apply(context: Context, timezone: ProxyTimezone): Result<Unit> = runCatching {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         check(!prefs.getBoolean(SNAPSHOT_SAVED, false)) {
-            "توجد منطقة زمنية سابقة بانتظار الاستعادة؛ استعدها قبل بدء جلسة جديدة."
+            tr("توجد منطقة زمنية سابقة بانتظار الاستعادة؛ استعدها قبل بدء جلسة جديدة.", "A previous time zone is awaiting restoration. Restore it before starting a new session.")
         }
 
         AdvancedOperationLog.info(context, "قراءة المنطقة الزمنية الحالية وحفظ نسخة استعادة.")
         val originalTimeZone = read(context, "getprop $TIME_ZONE_PROPERTY")
         val automaticTimeZone = readSetting(context, AUTO_TIME_ZONE)
         check(originalTimeZone.isNotBlank() && originalTimeZone != "null") {
-            "تعذر قراءة المنطقة الزمنية الأصلية من Android."
+            tr("تعذر قراءة المنطقة الزمنية الأصلية من Android.", "Could not read the original Android time zone.")
         }
 
         val snapshot = JSONObject()
@@ -37,18 +37,18 @@ internal object AdvancedProxyTimezoneController {
                 .putString(SNAPSHOT, snapshot.toString())
                 .putBoolean(SNAPSHOT_SAVED, true)
                 .commit()
-        ) { "تعذر حفظ نسخة استعادة المنطقة الزمنية." }
+        ) { tr("تعذر حفظ نسخة استعادة المنطقة الزمنية.", "Could not save the time zone restoration snapshot.") }
 
         AdvancedOperationLog.info(context, "تطبيق المنطقة الزمنية لخروج البروكسي: ${timezone.id}.")
         try {
             writeSetting(context, AUTO_TIME_ZONE, "0").getOrThrow()
             check(readSetting(context, AUTO_TIME_ZONE) == "0") {
-                "تعذر إيقاف الضبط التلقائي للمنطقة الزمنية مؤقتًا."
+                tr("تعذر إيقاف الضبط التلقائي للمنطقة الزمنية مؤقتًا.", "Could not temporarily disable automatic time-zone settings.")
             }
 
             command(context, "cmd alarm set-timezone ${shellQuote(timezone.id)}").getOrThrow()
             check(read(context, "getprop $TIME_ZONE_PROPERTY") == timezone.id) {
-                "لم يؤكد Android تطبيق المنطقة الزمنية ${timezone.id}."
+                tr("لم يؤكد Android تطبيق المنطقة الزمنية ${timezone.id}.", "Android did not confirm that time zone ${timezone.id} was applied.")
             }
             AdvancedOperationLog.output(context, "تم التحقق من تطبيق المنطقة الزمنية ${timezone.id}.")
         } catch (failure: Throwable) {
@@ -56,8 +56,12 @@ internal object AdvancedProxyTimezoneController {
             val restore = restore(context)
             if (restore.isFailure) {
                 throw IllegalStateException(
-                    "${failure.message ?: "فشل تطبيق المنطقة الزمنية"}؛ وتعذرت الاستعادة التلقائية: " +
-                        (restore.exceptionOrNull()?.message ?: "أعد الاتصال عبر ADB وحاول الاستعادة."),
+                    tr(
+                        "${failure.message ?: "فشل تطبيق المنطقة الزمنية"}؛ وتعذرت الاستعادة التلقائية: " +
+                            (restore.exceptionOrNull()?.message ?: "أعد الاتصال عبر ADB وحاول الاستعادة."),
+                        "${failure.message ?: "Failed to apply the time zone"}; automatic restoration also failed: " +
+                            (restore.exceptionOrNull()?.message ?: "Reconnect via ADB and try restoring again."),
+                    ),
                     failure,
                 )
             }
@@ -77,32 +81,32 @@ internal object AdvancedProxyTimezoneController {
 
         val managedTimeZone = snapshot.optString("managed_time_zone")
         val currentTimeZone = runCatching { read(context, "getprop $TIME_ZONE_PROPERTY") }
-            .getOrElse { failures += "قراءة المنطقة الزمنية: ${it.message}"; "" }
+            .getOrElse { failures += tr("قراءة المنطقة الزمنية: ${it.message}", "Reading the time zone: ${it.message}"); "" }
         if (currentTimeZone == managedTimeZone) {
             val originalTimeZone = snapshot.optString("time_zone")
             runCatching {
                 command(context, "cmd alarm set-timezone ${shellQuote(originalTimeZone)}").getOrThrow()
                 check(read(context, "getprop $TIME_ZONE_PROPERTY") == originalTimeZone) {
-                    "لم يؤكد Android استعادة المنطقة الزمنية الأصلية."
+                    tr("لم يؤكد Android استعادة المنطقة الزمنية الأصلية.", "Android did not confirm restoration of the original time zone.")
                 }
-            }.onFailure { failures += "استعادة المنطقة الزمنية: ${it.message}" }
+            }.onFailure { failures += tr("استعادة المنطقة الزمنية: ${it.message}", "Restoring the time zone: ${it.message}") }
         } else {
             AdvancedOperationLog.info(context, "تغيّرت المنطقة الزمنية خارج الجلسة؛ أُبقي التغيير الخارجي كما هو.")
         }
 
         val currentAutoTimeZone = runCatching { readSetting(context, AUTO_TIME_ZONE) }
-            .getOrElse { failures += "قراءة الضبط التلقائي للوقت: ${it.message}"; "" }
+            .getOrElse { failures += tr("قراءة الضبط التلقائي للوقت: ${it.message}", "Reading the automatic time setting: ${it.message}"); "" }
         if (currentAutoTimeZone == "0") {
             runCatching {
                 restoreSetting(context, AUTO_TIME_ZONE, snapshot.optString("auto_time_zone", "null")).getOrThrow()
-            }.onFailure { failures += "استعادة الضبط التلقائي للمنطقة الزمنية: ${it.message}" }
+            }.onFailure { failures += tr("استعادة الضبط التلقائي للمنطقة الزمنية: ${it.message}", "Restoring automatic time-zone settings: ${it.message}") }
         } else {
             AdvancedOperationLog.info(context, "تغيّر خيار المنطقة الزمنية التلقائية خارج الجلسة؛ أُبقي التغيير الخارجي.")
         }
 
-        check(failures.isEmpty()) { failures.joinToString("؛ ") }
+        check(failures.isEmpty()) { failures.joinToString(tr("؛ ", "; ")) }
         check(prefs.edit().remove(SNAPSHOT).remove(SNAPSHOT_SAVED).commit()) {
-            "تعذر إنهاء استعادة المنطقة الزمنية المحفوظة."
+            tr("تعذر إنهاء استعادة المنطقة الزمنية المحفوظة.", "Could not complete restoration of the saved time zone.")
         }
         AdvancedOperationLog.output(context, "تمت استعادة المنطقة الزمنية الأصلية أو الحفاظ على التغيير الخارجي والتحقق منه.")
     }.onFailure {
@@ -124,7 +128,7 @@ internal object AdvancedProxyTimezoneController {
         return result.mapCatching {
             val actual = readSetting(context, key)
             check(actual == value || (value == "null" && actual == "null")) {
-                "لم تتم استعادة الإعداد $key."
+                tr("لم تتم استعادة الإعداد $key.", "Setting $key was not restored.")
             }
         }
     }

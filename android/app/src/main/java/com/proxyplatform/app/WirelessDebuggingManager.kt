@@ -145,14 +145,14 @@ object WirelessDebuggingManager {
         if (response.exitCode != 0) {
             throw RemoteShellCommandException(
                 response.exitCode,
-                response.output.ifBlank { "<بلا تفاصيل>" }
+                response.output.ifBlank { tr("<بلا تفاصيل>", "<no details>") }
             )
         }
         return response.output
     }
 
     private class RemoteShellCommandException(exitCode: Int, output: String) :
-        IllegalStateException("انتهى أمر ADB برمز $exitCode: $output")
+        IllegalStateException(tr("انتهى أمر ADB برمز $exitCode: $output", "The ADB command exited with code $exitCode: $output"))
 
     fun executeCommand(context: Context, command: String): Boolean =
         executeCommandResult(context, command).isSuccess

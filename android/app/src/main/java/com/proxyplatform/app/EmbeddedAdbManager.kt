@@ -37,14 +37,14 @@ class EmbeddedAdbManager private constructor(private val context: Context) {
 
     fun pair(timeoutMs: Long, pairingCode: String): Result<Unit> = runCatching {
         require(pairingCode.length == 6 && pairingCode.all { it in '0'..'9' }) {
-            "رمز الاقتران يجب أن يتكون من 6 أرقام"
+            tr("رمز الاقتران يجب أن يتكون من 6 أرقام", "The pairing code must contain 6 digits.")
         }
         AdvancedOperationLog.info(context, "اكتشاف خدمة ADB Pairing عبر mDNS ($timeoutMs ms كحد أقصى).")
         val endpoint = discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING, timeoutMs)
-            ?: error("لم يتم العثور على خدمة الاقتران. افتح شاشة إقران الجهاز باستخدام رمز")
+            ?: error(tr("لم يتم العثور على خدمة الاقتران. افتح شاشة إقران الجهاز باستخدام رمز", "The pairing service was not found. Open the Pair device with pairing code screen."))
         AdvancedOperationLog.info(context, "عُثر على خدمة الاقتران على المنفذ ${endpoint.second}؛ عنوان الشبكة مخفي.")
         AdvancedOperationLog.info(context, "إرسال طلب الاقتران إلى Android؛ الرمز لا يُسجّل.")
-        connection.pair(endpoint.first.hostAddress ?: error("عنوان الجهاز غير متاح"), endpoint.second, pairingCode)
+        connection.pair(endpoint.first.hostAddress ?: error(tr("عنوان الجهاز غير متاح", "The device address is unavailable.")), endpoint.second, pairingCode)
         context.getSharedPreferences(PAIRING_PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(PAIRING_RECORDED, true).apply()
         AdvancedOperationLog.output(context, "اكتمل تبادل مفاتيح Wireless ADB وحُفظت حالة الاقتران.")
@@ -52,13 +52,13 @@ class EmbeddedAdbManager private constructor(private val context: Context) {
 
     fun connect(timeoutMs: Long): Result<Unit> = runCatching {
         AdvancedOperationLog.info(context, "بدء تفاوض اتصال ADB عبر TLS (مهلة $timeoutMs ms).")
-        check(connection.connectTls(context, timeoutMs)) { "تعذر الاتصال بخدمة ADB" }
-        check(connection.isConnected()) { "اتصال ADB غير جاهز" }
+        check(connection.connectTls(context, timeoutMs)) { tr("تعذر الاتصال بخدمة ADB", "Could not connect to the ADB service.") }
+        check(connection.isConnected()) { tr("اتصال ADB غير جاهز", "The ADB connection is not ready.") }
         AdvancedOperationLog.output(context, "تم الاتصال بخدمة ADB بنجاح.")
     }
 
     fun execute(command: String): Result<String> = runCatching {
-        check(connection.isConnected()) { "ADB غير متصل" }
+        check(connection.isConnected()) { tr("ADB غير متصل", "ADB is not connected.") }
         val stream: AdbStream = connection.openStream("shell:$command")
         stream.use {
             val reader = Executors.newSingleThreadExecutor { task -> Thread(task, "adb-shell-reader").apply { isDaemon = true } }
@@ -81,7 +81,7 @@ class EmbeddedAdbManager private constructor(private val context: Context) {
             } catch (timeout: TimeoutException) {
                 future.cancel(true)
                 runCatching { stream.close() }
-                throw IllegalStateException("انتهت مهلة أمر ADB بعد ${SHELL_COMMAND_TIMEOUT_MS / 1000} ثانية: $command", timeout)
+                throw IllegalStateException(tr("انتهت مهلة أمر ADB بعد ${SHELL_COMMAND_TIMEOUT_MS / 1000} ثانية: $command", "The ADB command timed out after ${SHELL_COMMAND_TIMEOUT_MS / 1000} seconds: $command"), timeout)
             } finally {
                 reader.shutdownNow()
             }
@@ -90,7 +90,7 @@ class EmbeddedAdbManager private constructor(private val context: Context) {
 
     /** Opens a shell owned by the caller for the lifetime of a server process. */
     fun openPersistentShell(command: String): Result<AdbStream> = runCatching {
-        check(connection.isConnected()) { "ADB غير متصل" }
+        check(connection.isConnected()) { tr("ADB غير متصل", "ADB is not connected.") }
         connection.openStream("shell:$command")
     }
 

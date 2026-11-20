@@ -92,8 +92,8 @@ internal fun NetworkBroadcastScreen(
         item {
             PageHeading(
                 eyebrow = "Kun cloak",
-                title = "بث شبكة",
-                subtitle = "اضغط Start لتشغيل نقطة الاتصال. يُستخدم ADB لإقلاع الخدمة فقط، ثم تعمل بشكل مستقل.",
+                title = tr("بث شبكة", "Network broadcast"),
+                subtitle = tr("اضغط Start لتشغيل نقطة الاتصال. يُستخدم ADB لإقلاع الخدمة فقط، ثم تعمل بشكل مستقل.", "Press Start to turn on the hotspot. ADB is only used to start the service; it then runs independently."),
             )
         }
         item {
@@ -116,19 +116,19 @@ internal fun NetworkBroadcastScreen(
                     ) {
                         androidx.compose.material3.Icon(
                             painter = painterResource(R.drawable.ic_nav_broadcast),
-                            contentDescription = "بث شبكة",
+                            contentDescription = tr("بث شبكة", "Network broadcast"),
                             modifier = Modifier.size(86.dp),
                             tint = Color.White,
                         )
                     }
                     Text(
-                        if (running) "البث نشط" else "البث متوقف",
+                        if (running) tr("البث نشط", "Broadcast active") else tr("البث متوقف", "Broadcast stopped"),
                         color = Color.White,
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
-                        if (running) "نقطة الاتصال مربوطة بالبروكسي" else "جهّز الاتصال ثم اضغط Start",
+                        if (running) tr("نقطة الاتصال مربوطة بالبروكسي", "The hotspot is connected to the proxy") else tr("جهّز الاتصال ثم اضغط Start", "Set up the connection, then press Start"),
                         color = Color.White.copy(alpha = 0.86f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -142,22 +142,22 @@ internal fun NetworkBroadcastScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
-                    Text("جاهزية البث", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                    Text(tr("جاهزية البث", "Broadcast readiness"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                     StatusRow("Wireless ADB", adbReady, broadcastAdbStateLabel(adbState))
-                    StatusRow("خدمة البث", serverReady, if (serverReady) "جاهزة" else "غير مشغّلة")
-                    StatusRow("اتصال VPN", vpnReady, if (vpnReady) "نشط" else "اختياري")
+                    StatusRow(tr("خدمة البث", "Broadcast service"), serverReady, if (serverReady) tr("جاهزة", "Ready") else tr("غير مشغّلة", "Not running"))
+                    StatusRow(tr("اتصال VPN", "VPN connection"), vpnReady, if (vpnReady) tr("نشط", "Active") else tr("اختياري", "Optional"))
                     if (!adbReady && !serverReady) {
-                        BroadcastInfoNote("فعّل Wireless ADB وأكمل الاقتران من صفحة ADB. لا تحتاج صفحة البث إلى تثبيت Shizuku.", warning = true)
-                        KUNSecondaryButton("فتح صفحة ADB", onGoToAdb, Modifier.fillMaxWidth())
+                        BroadcastInfoNote(tr("فعّل Wireless ADB وأكمل الاقتران من صفحة ADB. لا تحتاج صفحة البث إلى تثبيت Shizuku.", "Enable Wireless ADB and complete pairing on the ADB page. Network broadcast does not require Shizuku."), warning = true)
+                        KUNSecondaryButton(tr("فتح صفحة ADB", "Open ADB page"), onGoToAdb, Modifier.fillMaxWidth())
                     } else if (!adbReady) {
-                        BroadcastInfoNote("خادم البث يعمل بشكل مستقل. انقطاع Wireless ADB بعد الإقلاع لا يتطلب إعادة الاقتران.", warning = false)
+                        BroadcastInfoNote(tr("خادم البث يعمل بشكل مستقل. انقطاع Wireless ADB بعد الإقلاع لا يتطلب إعادة الاقتران.", "The broadcast server runs independently. If Wireless ADB disconnects after startup, pairing again is not required."), warning = false)
                     }
                 }
             }
         }
         item {
             KUNPrimaryButton(
-                text = if (running) "إيقاف البث" else "Start",
+                text = if (running) tr("إيقاف البث", "Stop broadcast") else "Start",
                 onClick = {
                     val stopping = running
                     busy = true
@@ -205,12 +205,12 @@ private fun StatusRow(label: String, ready: Boolean, value: String) {
 }
 
 private fun broadcastAdbStateLabel(state: WirelessDebuggingManager.DebuggingState): String = when (state) {
-    WirelessDebuggingManager.DebuggingState.READY -> "جاهز"
-    WirelessDebuggingManager.DebuggingState.PAIRED_NOT_CONNECTED -> "مقترن لكن غير متصل"
-    WirelessDebuggingManager.DebuggingState.NOT_PAIRED -> "غير مقترن"
-    WirelessDebuggingManager.DebuggingState.WIRELESS_DISABLED -> "غير مفعّل"
-    WirelessDebuggingManager.DebuggingState.DEVELOPER_DISABLED -> "خيارات المطوّر غير مفعّلة"
-    WirelessDebuggingManager.DebuggingState.UNSUPPORTED_ANDROID_VERSION -> "يتطلب Android 11+"
+    WirelessDebuggingManager.DebuggingState.READY -> tr("جاهز", "Ready")
+    WirelessDebuggingManager.DebuggingState.PAIRED_NOT_CONNECTED -> tr("مقترن لكن غير متصل", "Paired but not connected")
+    WirelessDebuggingManager.DebuggingState.NOT_PAIRED -> tr("غير مقترن", "Not paired")
+    WirelessDebuggingManager.DebuggingState.WIRELESS_DISABLED -> tr("غير مفعّل", "Disabled")
+    WirelessDebuggingManager.DebuggingState.DEVELOPER_DISABLED -> tr("خيارات المطوّر غير مفعّلة", "Developer options are disabled")
+    WirelessDebuggingManager.DebuggingState.UNSUPPORTED_ANDROID_VERSION -> tr("يتطلب Android 11+", "Requires Android 11+")
 }
 
 @Composable

@@ -64,7 +64,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
 
         return try {
             AdvancedOperationLog.info(this, "بدء نفق VPN: protocol=${protocol.uppercase()}, endpoint=$host:$port, authentication=${username.isNotBlank()}.")
-            startForegroundCompat("جارٍ تجهيز نفق VPN")
+            startForegroundCompat(tr("جارٍ تجهيز نفق VPN", "Preparing the VPN tunnel"))
             if (!setupReady) {
                 AdvancedOperationLog.info(this, "تهيئة محرك sing-box لوضع VPN.")
                 setupLibbox()
@@ -90,7 +90,7 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
                 .remove(KEY_ERROR)
                 .apply()
             getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, notification("نفق VPN نشط"))
+                .notify(NOTIFICATION_ID, notification(tr("نفق VPN نشط", "VPN tunnel is active")))
             AdvancedOperationLog.output(this, "اكتمل تشغيل نفق VPN بنجاح.")
             START_STICKY
         } catch (error: Exception) {
@@ -219,10 +219,10 @@ class ProxyVpnService : VpnService(), CommandServerHandler {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "نفق VPN",
+                tr("نفق VPN", "VPN tunnel"),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "حالة نفق VPN النشط"
+                description = tr("حالة نفق VPN النشط", "Active VPN tunnel status")
                 setShowBadge(false)
                 setSound(null, null)
                 enableVibration(false)

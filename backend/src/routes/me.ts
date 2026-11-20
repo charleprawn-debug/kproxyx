@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { localizeError, localizeCaughtError, localizeMinimumTopup, localizeEnglishMessage } from '../utils/errorMessages';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth';
 import { supabaseAdmin } from '../utils/supabase';
@@ -13,14 +14,14 @@ router.use(requireAuth);
 
 router.get('/', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('users').select('id,email,full_name,avatar_url,country_code,language,role,status,is_email_verified,created_at').eq('id', req.user!.id).single();
-  if (error) return res.status(500).json({ error: { code: 'PROFILE_UNAVAILABLE', message: 'Could not load profile' } });
+  if (error) return res.status(500).json({ error: { code: 'PROFILE_UNAVAILABLE', message: localizeEnglishMessage(req, res, 'Could not load profile') } });
   return res.json({ data });
 });
 
 router.get('/notifications', async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
   const { data, error } = await supabaseAdmin.from('notifications').select('id,title,message,notification_type,category,action_url,is_read,created_at').eq('user_id', req.user!.id).order('created_at', { ascending: false }).limit(limit);
-  if (error) return res.status(500).json({ error: { code: 'NOTIFICATIONS_UNAVAILABLE', message: 'تعذر تحميل الإشعارات.' } });
+  if (error) return res.status(500).json({ error: { code: 'NOTIFICATIONS_UNAVAILABLE', message: localizeError(req, res, 'تعذر تحميل الإشعارات.') } });
   return res.json({ data: data ?? [] });
 });
 router.get('/support-messages', async (req, res) => {
@@ -44,7 +45,7 @@ router.get('/support-messages', async (req, res) => {
       .eq('is_read', false),
   ]);
   if (messagesResult.error || unreadResult.error) {
-    return res.status(500).json({ error: { code: 'SUPPORT_MESSAGES_UNAVAILABLE', message: 'تعذر تحميل رسائل الدعم.' } });
+    return res.status(500).json({ error: { code: 'SUPPORT_MESSAGES_UNAVAILABLE', message: localizeError(req, res, 'تعذر تحميل رسائل الدعم.') } });
   }
   const rows = messagesResult.data ?? [];
   const hasMore = rows.length > limit;
@@ -56,45 +57,45 @@ router.get('/support-messages', async (req, res) => {
 });
 router.patch('/notifications/:id/read', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('notifications').update({ is_read: true, read_at: new Date().toISOString() }).eq('id', req.params.id).eq('user_id', req.user!.id).select('id,is_read,read_at').single();
-  if (error || !data) return res.status(404).json({ error: { code: 'NOTIFICATION_NOT_FOUND', message: 'الإشعار غير موجود.' } });
+  if (error || !data) return res.status(404).json({ error: { code: 'NOTIFICATION_NOT_FOUND', message: localizeError(req, res, 'الإشعار غير موجود.') } });
   return res.json({ data });
 });
 router.get('/activity', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('user_activity_logs').select('id,action,entity_type,entity_id,metadata,created_at').eq('user_id', req.user!.id).order('created_at', { ascending: false }).limit(100);
-  if (error) return res.status(500).json({ error: { code: 'ACTIVITY_UNAVAILABLE', message: 'تعذر تحميل السجل.' } });
+  if (error) return res.status(500).json({ error: { code: 'ACTIVITY_UNAVAILABLE', message: localizeError(req, res, 'تعذر تحميل السجل.') } });
   return res.json({ data: data ?? [] });
 });
 
 router.get('/subscriptions', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('subscriptions').select('*,proxy_products(id,name,description,protocol,country_code,country_name,price_monthly,feature_flags),subscription_plans(id,name,description,price,currency,duration_days,feature_flags,free_claim_once,free_duration_minutes)').eq('user_id', req.user!.id).order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: { code: 'SUBSCRIPTIONS_UNAVAILABLE', message: 'Could not load subscriptions' } });
+  if (error) return res.status(500).json({ error: { code: 'SUBSCRIPTIONS_UNAVAILABLE', message: localizeEnglishMessage(req, res, 'Could not load subscriptions') } });
   return res.json({ data: data ?? [] });
 });
 
-router.get('/subscription-plans', async (_req, res) => {
+router.get('/subscription-plans', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('subscription_plans').select('id,name,description,price,currency,duration_days,is_active,is_featured,feature_flags,free_claim_once,free_duration_minutes').eq('is_active', true).order('is_featured', { ascending: false }).order('sort_order', { ascending: true });
-  if (error) return res.status(500).json({ error: { code: 'SUBSCRIPTION_PLANS_UNAVAILABLE', message: 'Could not load subscription plans' } });
+  if (error) return res.status(500).json({ error: { code: 'SUBSCRIPTION_PLANS_UNAVAILABLE', message: localizeEnglishMessage(req, res, 'Could not load subscription plans') } });
   return res.json({ data: data ?? [] });
 });
 
 router.get('/wallet', async (req, res) => {
   const { data, error } = await supabaseAdmin.rpc('ensure_wallet', { p_user_id: req.user!.id });
-  if (error) return res.status(500).json({ error: { code: 'WALLET_UNAVAILABLE', message: 'Could not load wallet' } });
+  if (error) return res.status(500).json({ error: { code: 'WALLET_UNAVAILABLE', message: localizeEnglishMessage(req, res, 'Could not load wallet') } });
   return res.json({ data });
 });
 
 router.get('/wallet/transactions', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('wallet_transactions').select('id,amount,balance_after,transaction_type,status,description,reference_id,created_at').eq('user_id', req.user!.id).order('created_at', { ascending: false }).limit(100);
-  if (error) return res.status(500).json({ error: { code: 'WALLET_HISTORY_UNAVAILABLE', message: 'Could not load wallet history' } });
+  if (error) return res.status(500).json({ error: { code: 'WALLET_HISTORY_UNAVAILABLE', message: localizeEnglishMessage(req, res, 'Could not load wallet history') } });
   return res.json({ data: data ?? [] });
 });
 
 router.get('/saved-proxies', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('user_saved_proxies').select('id,name,protocol,host,port,auth_required,username_encrypted,password_encrypted,is_selected,created_at,updated_at').eq('user_id', req.user!.id).order('is_selected', { ascending: false }).order('updated_at', { ascending: false });
-  if (error) return res.status(500).json({ error: { code: 'SAVED_PROXIES_UNAVAILABLE', message: 'تعذر تحميل البروكسيات المحفوظة.' } });
+  if (error) return res.status(500).json({ error: { code: 'SAVED_PROXIES_UNAVAILABLE', message: localizeError(req, res, 'تعذر تحميل البروكسيات المحفوظة.') } });
   try {
     return res.json({ data: (data ?? []).map((row) => ({ id: row.id, name: row.name, protocol: row.protocol, host: row.host, port: row.port, authenticationRequired: row.auth_required, username: row.auth_required ? encryptionService.decrypt(row.username_encrypted) : '', password: row.auth_required ? encryptionService.decrypt(row.password_encrypted) : '', selected: row.is_selected })) });
-  } catch { return res.status(500).json({ error: { code: 'SAVED_PROXY_CREDENTIALS_UNAVAILABLE', message: 'تعذر فك تشفير بيانات البروكسي.' } }); }
+  } catch { return res.status(500).json({ error: { code: 'SAVED_PROXY_CREDENTIALS_UNAVAILABLE', message: localizeError(req, res, 'تعذر فك تشفير بيانات البروكسي.') } }); }
 });
 
 router.post('/saved-proxies', async (req, res) => {
@@ -105,7 +106,7 @@ router.post('/saved-proxies', async (req, res) => {
   const authRequired = req.body?.authenticationRequired === true;
   const username = String(req.body?.username ?? '');
   const password = String(req.body?.password ?? '');
-  if (!name || name.length > 120 || !['http', 'socks5'].includes(protocol) || !host || host.length > 255 || !Number.isInteger(port) || port < 1 || port > 65535 || (authRequired && (!username || !password))) return res.status(400).json({ error: { code: 'SAVED_PROXY_VALIDATION_FAILED', message: 'بيانات البروكسي غير صالحة.' } });
+  if (!name || name.length > 120 || !['http', 'socks5'].includes(protocol) || !host || host.length > 255 || !Number.isInteger(port) || port < 1 || port > 65535 || (authRequired && (!username || !password))) return res.status(400).json({ error: { code: 'SAVED_PROXY_VALIDATION_FAILED', message: localizeError(req, res, 'بيانات البروكسي غير صالحة.') } });
   let id = typeof req.body?.id === 'string' && req.body.id ? req.body.id : crypto.randomUUID();
   if (req.body?.id) {
     const { data: existing } = await supabaseAdmin.from('user_saved_proxies').select('id,user_id').eq('id', id).maybeSingle();
@@ -113,42 +114,42 @@ router.post('/saved-proxies', async (req, res) => {
   }
   const values = { id, user_id: req.user!.id, name, protocol, host, port, auth_required: authRequired, username_encrypted: encryptionService.encrypt(authRequired ? username : ''), password_encrypted: encryptionService.encrypt(authRequired ? password : ''), is_selected: true, updated_at: new Date().toISOString() };
   const { error: clearError } = await supabaseAdmin.from('user_saved_proxies').update({ is_selected: false }).eq('user_id', req.user!.id);
-  if (clearError) return res.status(500).json({ error: { code: 'SAVED_PROXY_UPDATE_FAILED', message: 'تعذر تحديث الاختيار الحالي.' } });
+  if (clearError) return res.status(500).json({ error: { code: 'SAVED_PROXY_UPDATE_FAILED', message: localizeError(req, res, 'تعذر تحديث الاختيار الحالي.') } });
   const { data, error } = await supabaseAdmin.from('user_saved_proxies').upsert(values, { onConflict: 'id' }).select('id,name,protocol,host,port,auth_required,is_selected').single();
-  if (error) return res.status(400).json({ error: { code: 'SAVED_PROXY_SAVE_FAILED', message: 'تعذر حفظ البروكسي.' } });
+  if (error) return res.status(400).json({ error: { code: 'SAVED_PROXY_SAVE_FAILED', message: localizeError(req, res, 'تعذر حفظ البروكسي.') } });
   return res.status(201).json({ data: { ...data, authenticationRequired: data.auth_required, username: authRequired ? username : '', password: authRequired ? password : '', selected: data.is_selected } });
 });
 
 router.delete('/saved-proxies/:id', async (req, res) => {
   const { error } = await supabaseAdmin.from('user_saved_proxies').delete().eq('id', req.params.id).eq('user_id', req.user!.id);
-  if (error) return res.status(400).json({ error: { code: 'SAVED_PROXY_DELETE_FAILED', message: 'تعذر حذف البروكسي المحفوظ.' } });
+  if (error) return res.status(400).json({ error: { code: 'SAVED_PROXY_DELETE_FAILED', message: localizeError(req, res, 'تعذر حذف البروكسي المحفوظ.') } });
   return res.status(204).send();
 });
 
 router.post('/saved-proxies/:id/select', async (req, res) => {
   const { error: clearError } = await supabaseAdmin.from('user_saved_proxies').update({ is_selected: false }).eq('user_id', req.user!.id);
-  if (clearError) return res.status(500).json({ error: { code: 'SAVED_PROXY_SELECT_FAILED', message: 'تعذر تحديث الاختيار.' } });
+  if (clearError) return res.status(500).json({ error: { code: 'SAVED_PROXY_SELECT_FAILED', message: localizeError(req, res, 'تعذر تحديث الاختيار.') } });
   const { data, error } = await supabaseAdmin.from('user_saved_proxies').update({ is_selected: true, updated_at: new Date().toISOString() }).eq('id', req.params.id).eq('user_id', req.user!.id).select('id').single();
-  if (error || !data) return res.status(404).json({ error: { code: 'SAVED_PROXY_NOT_FOUND', message: 'البروكسي غير موجود.' } });
+  if (error || !data) return res.status(404).json({ error: { code: 'SAVED_PROXY_NOT_FOUND', message: localizeError(req, res, 'البروكسي غير موجود.') } });
   return res.json({ data: { id: data.id, selected: true } });
 });
 
 router.get('/proxies', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('user_proxy_credentials').select('id,order_id,provider_proxy_id,protocol,host,port,username,password_encrypted,proxy_url,status,expires_at,location,created_at').eq('user_id', req.user!.id).order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: { code: 'PROXIES_UNAVAILABLE', message: 'Could not load saved proxies' } });
+  if (error) return res.status(500).json({ error: { code: 'PROXIES_UNAVAILABLE', message: localizeEnglishMessage(req, res, 'Could not load saved proxies') } });
   try {
     return res.json({ data: (data ?? []).map((row) => ({ ...row, password_encrypted: undefined, password: encryptionService.decrypt(row.password_encrypted) })) });
   } catch {
-    return res.status(500).json({ error: { code: 'PROXY_CREDENTIALS_UNAVAILABLE', message: 'Could not decrypt proxy credentials' } });
+    return res.status(500).json({ error: { code: 'PROXY_CREDENTIALS_UNAVAILABLE', message: localizeEnglishMessage(req, res, 'Could not decrypt proxy credentials') } });
   }
 });
 
 router.patch('/proxies/:id', async (req, res) => {
   const action = String(req.body?.action ?? '').trim();
   const { data: proxy, error: proxyError } = await supabaseAdmin.from('user_proxy_credentials').select('id,order_id,provider_proxy_id,status').eq('id', req.params.id).eq('user_id', req.user!.id).single();
-  if (proxyError || !proxy) return res.status(404).json({ error: { code: 'PROXY_NOT_FOUND', message: 'البروكسي غير موجود.' } });
+  if (proxyError || !proxy) return res.status(404).json({ error: { code: 'PROXY_NOT_FOUND', message: localizeError(req, res, 'البروكسي غير موجود.') } });
   const { data: order, error: orderError } = await supabaseAdmin.from('marketplace_proxy_orders').select('provider_code').eq('id', proxy.order_id).eq('user_id', req.user!.id).single();
-  if (orderError || !order?.provider_code) return res.status(409).json({ error: { code: 'PROVIDER_UNKNOWN', message: 'لا يمكن تحديد مزود البروكسي.' } });
+  if (orderError || !order?.provider_code) return res.status(409).json({ error: { code: 'PROVIDER_UNKNOWN', message: localizeError(req, res, 'لا يمكن تحديد مزود البروكسي.') } });
   try {
     if (order.provider_code === 'proxy-cheap') await proxyCheapService.proxyAction(String(proxy.provider_proxy_id), action, req.body?.payload ?? {});
     else if (order.provider_code === 'proxy-seller') {
@@ -156,40 +157,40 @@ router.patch('/proxies/:id', async (req, res) => {
       if (action === 'rename') await proxySellerService.renameResidentialList(payload);
       else if (action === 'rotation') await proxySellerService.rotateResidentialList(payload);
       else if (action === 'delete') { await proxySellerService.deleteResidentialList(payload); await supabaseAdmin.from('user_proxy_credentials').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('id', proxy.id); }
-      else return res.status(400).json({ error: { code: 'UNSUPPORTED_PROXY_ACTION', message: 'هذه العملية غير مدعومة لهذا المزود.' } });
-    } else return res.status(400).json({ error: { code: 'UNSUPPORTED_PROXY_ACTION', message: 'إدارة هذا المزود غير متاحة من API.' } });
+      else return res.status(400).json({ error: { code: 'UNSUPPORTED_PROXY_ACTION', message: localizeError(req, res, 'هذه العملية غير مدعومة لهذا المزود.') } });
+    } else return res.status(400).json({ error: { code: 'UNSUPPORTED_PROXY_ACTION', message: localizeError(req, res, 'إدارة هذا المزود غير متاحة من API.') } });
     return res.json({ data: { id: proxy.id, action, status: action === 'delete' ? 'deleted' : proxy.status } });
-  } catch (error) { return res.status(502).json({ error: { code: 'PROXY_ACTION_FAILED', message: error instanceof Error ? error.message : 'تعذر تنفيذ العملية لدى المزود.' } }); }
+  } catch (error) { return res.status(502).json({ error: { code: 'PROXY_ACTION_FAILED', message: localizeCaughtError(req, res, error, 'تعذر تنفيذ العملية لدى المزود.') } }); }
 });
 
-router.post('/wallet/top-up', async (_req, res) => res.status(409).json({ error: { code: 'TOP_UP_NOT_AVAILABLE', message: 'Wallet top-up methods are not available yet' } }));
+router.post('/wallet/top-up', async (req, res) => res.status(409).json({ error: { code: 'TOP_UP_NOT_AVAILABLE', message: localizeEnglishMessage(req, res, 'Wallet top-up methods are not available yet') } }));
 
-router.get('/wallet/top-up/methods', async (_req, res) => {
+router.get('/wallet/top-up/methods', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('wallet_topup_methods').select('code,name,currency,network,address,min_amount,exchange_rate,instructions,sort_order,is_enabled').eq('is_enabled', true).order('sort_order', { ascending: true });
-  if (error) return res.status(500).json({ error: { code: 'TOPUP_METHODS_UNAVAILABLE', message: 'تعذر تحميل طرق الشحن.' } });
+  if (error) return res.status(500).json({ error: { code: 'TOPUP_METHODS_UNAVAILABLE', message: localizeError(req, res, 'تعذر تحميل طرق الشحن.') } });
   return res.json({ data: data ?? [] });
 });
 
 router.get('/wallet/top-up/requests', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('wallet_topup_requests').select('id,method_code,submitted_amount,submitted_currency,expected_usd,transaction_reference,status,verification_source,admin_note,created_at,updated_at').eq('user_id', req.user!.id).order('created_at', { ascending: false }).limit(50);
-  if (error) return res.status(500).json({ error: { code: 'TOPUP_REQUESTS_UNAVAILABLE', message: 'تعذر تحميل طلبات الشحن.' } });
+  if (error) return res.status(500).json({ error: { code: 'TOPUP_REQUESTS_UNAVAILABLE', message: localizeError(req, res, 'تعذر تحميل طلبات الشحن.') } });
   return res.json({ data: data ?? [] });
 });
 
 router.post('/wallet/top-up/requests', async (req, res) => {
   const methodCode = String(req.body?.methodCode ?? '').trim();
   const amount = Number(req.body?.amount);
-  if (!methodCode || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'أدخل مبلغًا صالحًا.' } });
+  if (!methodCode || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: localizeError(req, res, 'أدخل مبلغًا صالحًا.') } });
   const { data: method, error: methodError } = await supabaseAdmin.from('wallet_topup_methods').select('code,name,currency,network,address,min_amount,exchange_rate,instructions,is_enabled').eq('code', methodCode).eq('is_enabled', true).single();
-  if (methodError || !method) return res.status(409).json({ error: { code: 'TOPUP_METHOD_UNAVAILABLE', message: 'طريقة الشحن غير متاحة حاليًا.' } });
-  if (!method.address?.trim() && method.currency !== 'USDT') return res.status(409).json({ error: { code: 'TOPUP_METHOD_NOT_CONFIGURED', message: 'لم يجهز الأدمن عنوان هذه الطريقة بعد.' } });
-  if (amount < Number(method.min_amount)) return res.status(400).json({ error: { code: 'TOPUP_MINIMUM_NOT_MET', message: `الحد الأدنى للشحن هو ${method.min_amount} ${method.currency}.` } });
+  if (methodError || !method) return res.status(409).json({ error: { code: 'TOPUP_METHOD_UNAVAILABLE', message: localizeError(req, res, 'طريقة الشحن غير متاحة حاليًا.') } });
+  if (!method.address?.trim() && method.currency !== 'USDT') return res.status(409).json({ error: { code: 'TOPUP_METHOD_NOT_CONFIGURED', message: localizeError(req, res, 'لم يجهز الأدمن عنوان هذه الطريقة بعد.') } });
+  if (amount < Number(method.min_amount)) return res.status(400).json({ error: { code: 'TOPUP_MINIMUM_NOT_MET', message: localizeMinimumTopup(req, res, method.min_amount, method.currency) } });
   const expectedUsd = method.currency === 'SYP' ? amount / Number(method.exchange_rate) : amount;
-  if (!Number.isFinite(expectedUsd) || expectedUsd <= 0) return res.status(400).json({ error: { code: 'INVALID_EXCHANGE_RATE', message: 'سعر الصرف غير صالح.' } });
+  if (!Number.isFinite(expectedUsd) || expectedUsd <= 0) return res.status(400).json({ error: { code: 'INVALID_EXCHANGE_RATE', message: localizeError(req, res, 'سعر الصرف غير صالح.') } });
   const requestId = crypto.randomUUID();
-  if (method.currency === 'USDT' && !(await isOxaConfigured())) return res.status(503).json({ error: { code: 'OXAPAY_NOT_CONFIGURED', message: 'الدفع بالـUSDT غير مهيأ حاليًا.' } });
+  if (method.currency === 'USDT' && !(await isOxaConfigured())) return res.status(503).json({ error: { code: 'OXAPAY_NOT_CONFIGURED', message: localizeError(req, res, 'الدفع بالـUSDT غير مهيأ حاليًا.') } });
   const { data, error } = await supabaseAdmin.from('wallet_topup_requests').insert({ id: requestId, user_id: req.user!.id, method_code: method.code, submitted_amount: amount, submitted_currency: method.currency, expected_usd: Math.round(expectedUsd * 100) / 100, transaction_reference: `pending-${requestId}`, provider_order_id: method.currency === 'USDT' ? requestId : null, provider_network: method.network || null, status: 'pending' }).select('id,method_code,submitted_amount,submitted_currency,expected_usd,status,created_at,provider_order_id').single();
-  if (error) return res.status(400).json({ error: { code: 'TOPUP_REQUEST_CREATE_FAILED', message: error.code === '23505' ? 'تعذر إنشاء طلب الشحن.' : error.message } });
+  if (error) return res.status(400).json({ error: { code: 'TOPUP_REQUEST_CREATE_FAILED', message: error.code === '23505' ? localizeError(req, res, 'تعذر إنشاء طلب الشحن.') : error.message } });
   if (method.currency !== 'USDT') return res.status(201).json({ data: { ...data, method } });
   try {
     const payment = await createWhiteLabelPayment(expectedUsd, method.network ?? '', requestId);
@@ -198,18 +199,18 @@ router.post('/wallet/top-up/requests', async (req, res) => {
     return res.status(201).json({ data: { ...data, method: { ...method, address: payment.address, instructions: `${method.instructions || ''}\nأرسل ${payment.payAmount} USDT على شبكة ${payment.network}.`.trim() }, payment: { trackId: payment.trackId, address: payment.address, payAmount: payment.payAmount, network: payment.network } } });
   } catch {
     await supabaseAdmin.from('wallet_topup_requests').update({ status: 'rejected', admin_note: 'OxaPay payment creation failed', updated_at: new Date().toISOString() }).eq('id', requestId);
-    return res.status(503).json({ error: { code: 'OXAPAY_PAYMENT_CREATE_FAILED', message: 'تعذر إنشاء عنوان USDT حاليًا. حاول لاحقًا.' } });
+    return res.status(503).json({ error: { code: 'OXAPAY_PAYMENT_CREATE_FAILED', message: localizeError(req, res, 'تعذر إنشاء عنوان USDT حاليًا. حاول لاحقًا.') } });
   }
 });
 
 router.post('/wallet/top-up/requests/:id/verify', async (req, res) => {
   const reference = String(req.body?.transactionReference ?? '').trim();
-  if (!/^[A-Za-z0-9._:/-]{3,255}$/.test(reference)) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'أدخل رقم عملية صالحًا.' } });
+  if (!/^[A-Za-z0-9._:/-]{3,255}$/.test(reference)) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: localizeError(req, res, 'أدخل رقم عملية صالحًا.') } });
   const { data: request, error: requestError } = await supabaseAdmin.from('wallet_topup_requests').select('id,status,method_code,submitted_amount,submitted_currency,expected_usd,created_at,provider_payment_id,provider_order_id,provider_network,provider_payload').eq('id', req.params.id).eq('user_id', req.user!.id).single();
-  if (requestError || !request) return res.status(404).json({ error: { code: 'TOPUP_REQUEST_NOT_FOUND', message: 'طلب الشحن غير موجود.' } });
-  if (request.status !== 'pending') return res.status(409).json({ error: { code: 'TOPUP_REQUEST_CLOSED', message: 'تمت معالجة طلب الشحن مسبقًا.' } });
+  if (requestError || !request) return res.status(404).json({ error: { code: 'TOPUP_REQUEST_NOT_FOUND', message: localizeError(req, res, 'طلب الشحن غير موجود.') } });
+  if (request.status !== 'pending') return res.status(409).json({ error: { code: 'TOPUP_REQUEST_CLOSED', message: localizeError(req, res, 'تمت معالجة طلب الشحن مسبقًا.') } });
   const { data: duplicate } = await supabaseAdmin.from('wallet_topup_requests').select('id').eq('method_code', request.method_code).eq('transaction_reference', reference).neq('id', request.id).maybeSingle();
-  if (duplicate) return res.status(409).json({ error: { code: 'DUPLICATE_TRANSACTION_REFERENCE', message: 'رقم العملية مستخدم مسبقًا.' } });
+  if (duplicate) return res.status(409).json({ error: { code: 'DUPLICATE_TRANSACTION_REFERENCE', message: localizeError(req, res, 'رقم العملية مستخدم مسبقًا.') } });
   const { data, error } = await supabaseAdmin.from('wallet_topup_requests').update({ transaction_reference: reference, verification_source: 'pending_review', updated_at: new Date().toISOString() }).eq('id', request.id).eq('user_id', req.user!.id).eq('status', 'pending').select('id,method_code,submitted_amount,submitted_currency,expected_usd,transaction_reference,status,verification_source,created_at,updated_at').single();
   if (error) return res.status(400).json({ error: { code: 'TOPUP_VERIFY_SUBMISSION_FAILED', message: error.message } });
   if (request.submitted_currency === 'USDT') return res.json({ data, message: 'تم إرسال الدفع إلى OxaPay. سيضاف الرصيد تلقائيًا بعد وصول Webhook المؤكد.' });
@@ -218,20 +219,20 @@ router.post('/wallet/top-up/requests/:id/verify', async (req, res) => {
     ? await verifySyriatel(Number(request.submitted_amount), reference, request.created_at)
     : await verifyShamCash(Number(request.submitted_amount), request.submitted_currency, reference, String(method?.address ?? ''), request.created_at);
   if (!verification.ok) {
-    if (verification.reason === 'not_configured') return res.status(503).json({ error: { code: 'SYRIA_PROVIDER_NOT_CONFIGURED', message: 'مزود التحقق غير مهيأ حاليًا.' }, data });
-    return res.status(409).json({ error: { code: 'TOPUP_NOT_VERIFIED', message: 'لم يتم العثور على عملية مطابقة. تأكد من الرقم والمبلغ ثم حاول مجددًا.', data } });
+    if (verification.reason === 'not_configured') return res.status(503).json({ error: { code: 'SYRIA_PROVIDER_NOT_CONFIGURED', message: localizeError(req, res, 'مزود التحقق غير مهيأ حاليًا.') }, data });
+    return res.status(409).json({ error: { code: 'TOPUP_NOT_VERIFIED', message: localizeError(req, res, 'لم يتم العثور على عملية مطابقة. تأكد من الرقم والمبلغ ثم حاول مجددًا.'), data } });
   }
   await supabaseAdmin.from('wallet_topup_requests').update({ provider_reference: verification.externalRef ?? reference, provider_payload: verification.raw ?? {}, verification_source: 'api_syria', updated_at: new Date().toISOString() }).eq('id', request.id).eq('status', 'pending');
   const { data: approval, error: approvalError } = await supabaseAdmin.rpc('approve_wallet_topup', { p_request_id: request.id, p_admin_id: null, p_admin_note: 'Automatically verified by API Syria' });
   const result = Array.isArray(approval) ? approval[0] : approval;
-  if (approvalError || !result?.success) return res.status(503).json({ error: { code: 'TOPUP_AUTO_APPROVAL_FAILED', message: 'تم التحقق من العملية لكن تعذر تحديث الرصيد. حاول تحديث الصفحة.' } });
+  if (approvalError || !result?.success) return res.status(503).json({ error: { code: 'TOPUP_AUTO_APPROVAL_FAILED', message: localizeError(req, res, 'تم التحقق من العملية لكن تعذر تحديث الرصيد. حاول تحديث الصفحة.') } });
   await supabaseAdmin.from('wallet_topup_requests').update({ verified_at: new Date().toISOString() }).eq('id', request.id);
   return res.json({ data: { ...data, status: 'verified', verification_source: 'api_syria' }, message: 'تم التحقق وإضافة الرصيد تلقائيًا.' });
 });
 
 router.get('/access', async (req, res) => {
   const { data, error } = await supabaseAdmin.from('subscriptions').select('status,expires_at,proxy_products(feature_flags),subscription_plans(feature_flags)').eq('user_id', req.user!.id).eq('status', 'active').gt('expires_at', new Date().toISOString());
-  if (error) return res.status(500).json({ error: { code: 'ACCESS_UNAVAILABLE', message: 'Could not load feature access' } });
+  if (error) return res.status(500).json({ error: { code: 'ACCESS_UNAVAILABLE', message: localizeEnglishMessage(req, res, 'Could not load feature access') } });
   const access = { advanced: false, sim: false, vpn: false, mock_location: false, broadcast: false };
   for (const row of data ?? []) for (const flags of [row.proxy_products, row.subscription_plans]) for (const [key, value] of Object.entries((flags as { feature_flags?: Record<string, boolean> } | null)?.feature_flags ?? {})) if (key in access && value === true) access[key as keyof typeof access] = true;
   const { data: grants } = await supabaseAdmin.from('user_feature_grants').select('feature_key,enabled,expires_at').eq('user_id', req.user!.id).eq('enabled', true);
@@ -243,7 +244,7 @@ router.post('/subscription-plans/:id/activate', async (req, res) => {
   const { data, error } = await supabaseAdmin.rpc('purchase_subscription_plan', { p_user_id: req.user!.id, p_plan_id: req.params.id });
   if (error) return res.status(500).json({ error: { code: 'PLAN_PURCHASE_FAILED', message: error.message } });
   const result = Array.isArray(data) ? data[0] : data;
-  if (!result?.success) return res.status(409).json({ error: { code: 'PLAN_PURCHASE_REJECTED', message: result?.message ?? 'Could not activate plan' }, data: result });
+  if (!result?.success) return res.status(409).json({ error: { code: 'PLAN_PURCHASE_REJECTED', message: result?.message ?? localizeEnglishMessage(req, res, 'Could not activate plan') }, data: result });
   return res.status(201).json({ data: result });
 });
 

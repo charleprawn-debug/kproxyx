@@ -41,7 +41,7 @@ class ProxyLocalService : Service(), CommandServerHandler {
         AdvancedOperationLog.info(this, "إنشاء خدمة البروكسي المحلي.")
         createNotificationChannel()
         runCatching {
-            startForegroundCompat("جارٍ تجهيز البروكسي المحلي")
+            startForegroundCompat(tr("جارٍ تجهيز البروكسي المحلي", "Preparing the local proxy"))
             AdvancedOperationLog.info(this, "بدء تهيئة محرك sing-box الأصلي.")
             setupLibbox()
             setupReady = true
@@ -98,11 +98,11 @@ class ProxyLocalService : Service(), CommandServerHandler {
             // Recover a previous interrupted session before creating a fresh policy.
             RootWebRtcController.restore(this).getOrThrow()
             if (blockWebRtc) {
-                check(RootWebRtcController.isEnabled(this)) { "فعّل خيار الحماية العالية أولًا." }
+                check(RootWebRtcController.isEnabled(this)) { tr("فعّل خيار الحماية العالية أولًا.", "Enable high protection first.") }
                 RootWebRtcController.apply(this).getOrThrow()
                 AdvancedOperationLog.output(this, "طُبقت الحماية العالية على IPv4 وIPv6.")
             }
-            check(!destroyed) { "أُوقفت الخدمة أثناء بدء الاتصال." }
+            check(!destroyed) { tr("أُوقفت الخدمة أثناء بدء الاتصال.", "The service stopped while the connection was starting.") }
             AdvancedOperationLog.info(
                 this,
                 "إعداد outbound: endpoint=$host:$port, protocol=${protocol.uppercase()}, authentication=${username.isNotBlank()}؛ بيانات الاعتماد لا تُسجّل."
@@ -124,7 +124,7 @@ class ProxyLocalService : Service(), CommandServerHandler {
                 .apply()
             AdvancedOperationLog.output(this, "sing-box يعمل؛ inbound=mixed, listen=127.0.0.1:$localPort.")
             getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, notification("البروكسي المحلي نشط"))
+                .notify(NOTIFICATION_ID, notification(tr("البروكسي المحلي نشط", "Local proxy is active")))
         } catch (error: Exception) {
             Log.e(tag, "Local proxy startup failed", error)
             AdvancedOperationLog.exception(this, "فشل تشغيل البروكسي المحلي", error)
@@ -163,7 +163,7 @@ class ProxyLocalService : Service(), CommandServerHandler {
         val restore = RootWebRtcController.restore(this)
         val editor = getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_RUNNING, false)
         if (restore.isFailure) {
-            val message = "تعذرت إزالة الحماية العالية. أعد منح الروت ثم استعد إعدادات الجلسة."
+            val message = tr("تعذرت إزالة الحماية العالية. أعد منح الروت ثم استعد إعدادات الجلسة.", "Could not remove high protection. Grant root access again, then restore the session settings.")
             editor.putString(KEY_ERROR, message)
             AdvancedOperationLog.error(this, message)
         } else if (clearError) editor.remove(KEY_ERROR)
@@ -206,10 +206,10 @@ class ProxyLocalService : Service(), CommandServerHandler {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "البروكسي المحلي",
+                tr("البروكسي المحلي", "Local proxy"),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "حالة البروكسي المحلي النشط"
+                description = tr("حالة البروكسي المحلي النشط", "Active local proxy status")
                 setShowBadge(false)
                 setSound(null, null)
                 enableVibration(false)

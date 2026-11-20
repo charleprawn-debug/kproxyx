@@ -15,38 +15,44 @@ internal data class SimCarrierPreset(
 )
 
 internal object SimNrfrPresets {
-    val countries = listOf(
-        SimCountryPreset("CN", "الصين"),
-        SimCountryPreset("HK", "هونغ كونغ"),
-        SimCountryPreset("MO", "ماكاو"),
-        SimCountryPreset("TW", "تايوان"),
-        SimCountryPreset("JP", "اليابان"),
-        SimCountryPreset("KR", "كوريا الجنوبية"),
-        SimCountryPreset("US", "الولايات المتحدة"),
-        SimCountryPreset("GB", "المملكة المتحدة"),
-        SimCountryPreset("DE", "ألمانيا"),
-        SimCountryPreset("FR", "فرنسا"),
-        SimCountryPreset("IT", "إيطاليا"),
-        SimCountryPreset("ES", "إسبانيا"),
-        SimCountryPreset("PT", "البرتغال"),
-        SimCountryPreset("RU", "روسيا"),
-        SimCountryPreset("IN", "الهند"),
-        SimCountryPreset("AU", "أستراليا"),
-        SimCountryPreset("NZ", "نيوزيلندا"),
-        SimCountryPreset("SG", "سنغافورة"),
-        SimCountryPreset("MY", "ماليزيا"),
-        SimCountryPreset("TH", "تايلاند"),
-        SimCountryPreset("VN", "فيتنام"),
-        SimCountryPreset("ID", "إندونيسيا"),
-        SimCountryPreset("PH", "الفلبين"),
-        SimCountryPreset("CA", "كندا"),
-        SimCountryPreset("MX", "المكسيك"),
-        SimCountryPreset("BR", "البرازيل"),
-        SimCountryPreset("AR", "الأرجنتين"),
-        SimCountryPreset("ZA", "جنوب أفريقيا"),
-    ).sortedBy { it.label }
+    // Keep the identifiers independent of display language. Cache both sorted
+    // lists, but select one at each read so Compose observes language changes.
+    private val countryNames = listOf(
+        Triple("CN", "الصين", "China"),
+        Triple("HK", "هونغ كونغ", "Hong Kong"),
+        Triple("MO", "ماكاو", "Macau"),
+        Triple("TW", "تايوان", "Taiwan"),
+        Triple("JP", "اليابان", "Japan"),
+        Triple("KR", "كوريا الجنوبية", "South Korea"),
+        Triple("US", "الولايات المتحدة", "United States"),
+        Triple("GB", "المملكة المتحدة", "United Kingdom"),
+        Triple("DE", "ألمانيا", "Germany"),
+        Triple("FR", "فرنسا", "France"),
+        Triple("IT", "إيطاليا", "Italy"),
+        Triple("ES", "إسبانيا", "Spain"),
+        Triple("PT", "البرتغال", "Portugal"),
+        Triple("RU", "روسيا", "Russia"),
+        Triple("IN", "الهند", "India"),
+        Triple("AU", "أستراليا", "Australia"),
+        Triple("NZ", "نيوزيلندا", "New Zealand"),
+        Triple("SG", "سنغافورة", "Singapore"),
+        Triple("MY", "ماليزيا", "Malaysia"),
+        Triple("TH", "تايلاند", "Thailand"),
+        Triple("VN", "فيتنام", "Vietnam"),
+        Triple("ID", "إندونيسيا", "Indonesia"),
+        Triple("PH", "الفلبين", "Philippines"),
+        Triple("CA", "كندا", "Canada"),
+        Triple("MX", "المكسيك", "Mexico"),
+        Triple("BR", "البرازيل", "Brazil"),
+        Triple("AR", "الأرجنتين", "Argentina"),
+        Triple("ZA", "جنوب أفريقيا", "South Africa"),
+    )
+    private val arabicCountries = countryNames.map { (code, ar, _) -> SimCountryPreset(code, ar) }.sortedBy { it.label }
+    private val englishCountries = countryNames.map { (code, _, en) -> SimCountryPreset(code, en) }.sortedBy { it.label }
+    val countries: List<SimCountryPreset>
+        get() = if (AppLanguage.isArabic) arabicCountries else englishCountries
 
-    val carriers = listOf(
+    private val arabicCarriers = listOf(
         SimCarrierPreset("cn_cmcc", "China Mobile", "China Mobile", "CN"),
         SimCarrierPreset("cn_cucc", "China Unicom", "China Unicom", "CN"),
         SimCarrierPreset("cn_ct", "China Telecom", "China Telecom", "CN"),
@@ -123,4 +129,9 @@ internal object SimNrfrPresets {
         SimCarrierPreset("br_tim", "TIM", "TIM Brasil", "BR"),
         SimCarrierPreset("custom", "مخصص", "", "", custom = true),
     )
+    private val englishCarriers = arabicCarriers.map { carrier ->
+        if (carrier.custom) carrier.copy(label = "Custom") else carrier
+    }
+    val carriers: List<SimCarrierPreset>
+        get() = if (AppLanguage.isArabic) arabicCarriers else englishCarriers
 }

@@ -42,9 +42,9 @@ internal object ProxyEndpointProbe {
         trace: (String) -> Unit = {},
     ): Result<Unit> = runCatching {
         validateEndpoint(host, port, timeoutMs)
-        require(protocol == "http" || protocol == "socks5") { "بروتوكول البروكسي غير مدعوم." }
+        require(protocol == "http" || protocol == "socks5") { tr("بروتوكول البروكسي غير مدعوم.", "The proxy protocol is not supported.") }
         require((username.isBlank() && password.isBlank()) || (username.isNotBlank() && password.isNotEmpty())) {
-            "أدخل اسم المستخدم وكلمة المرور معًا، أو أوقف المصادقة."
+            tr("أدخل اسم المستخدم وكلمة المرور معًا، أو أوقف المصادقة.", "Authentication failed: enter both the username and password, or disable authentication.")
         }
         Socket().use { socket ->
             socket.soTimeout = timeoutMs
@@ -55,16 +55,16 @@ internal object ProxyEndpointProbe {
             when (protocol) {
                 "http" -> checkHttpConnect(socket, username, password, trace)
                 "socks5" -> checkSocks5Connect(socket, username, password, trace)
-                else -> error("بروتوكول البروكسي غير مدعوم.")
+                else -> error(tr("بروتوكول البروكسي غير مدعوم.", "The proxy protocol is not supported."))
             }
             trace("نجح handshake البروكسي ونفق الإنترنت.")
         }
     }
 
     private fun validateEndpoint(host: String, port: Int, timeoutMs: Int) {
-        require(host.isNotBlank()) { "أدخل عنوان خادم البروكسي." }
-        require(port in 1..65535) { "أدخل منفذًا صحيحًا للبروكسي." }
-        require(timeoutMs > 0) { "مهلة الاتصال غير صالحة." }
+        require(host.isNotBlank()) { tr("أدخل عنوان خادم البروكسي.", "Enter the proxy server address.") }
+        require(port in 1..65535) { tr("أدخل منفذًا صحيحًا للبروكسي.", "Enter a valid proxy port.") }
+        require(timeoutMs > 0) { tr("مهلة الاتصال غير صالحة.", "The connection time limit is invalid.") }
     }
 
     private fun checkHttpConnect(socket: Socket, username: String, password: String, trace: (String) -> Unit) {
@@ -86,16 +86,16 @@ internal object ProxyEndpointProbe {
             flush()
         }
         val statusLine = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1)).readLine()
-            ?: error("أغلق خادم البروكسي الاتصال قبل تأكيد HTTP CONNECT.")
+            ?: error(tr("أغلق خادم البروكسي الاتصال قبل تأكيد HTTP CONNECT.", "Failed to connect the HTTP tunnel: the proxy server closed the connection before confirming HTTP CONNECT."))
         val statusCode = statusLine.trim().split(Regex("\\s+"))
             .getOrNull(1)?.toIntOrNull()
-            ?: error("لم يُرجع خادم البروكسي استجابة HTTP صالحة.")
+            ?: error(tr("لم يُرجع خادم البروكسي استجابة HTTP صالحة.", "The proxy server did not return a valid HTTP response."))
         trace("رد HTTP CONNECT: $statusLine.")
         when (statusCode) {
             in 200..299 -> Unit
-            407 -> error("رفض البروكسي بيانات المصادقة. تحقق من اسم المستخدم وكلمة المرور.")
-            403 -> error("رفض البروكسي إنشاء نفق إنترنت إلى $TARGET_HOST:$TARGET_PORT.")
-            else -> error("فشل اختبار البروكسي HTTP (الاستجابة $statusCode).")
+            407 -> error(tr("رفض البروكسي بيانات المصادقة. تحقق من اسم المستخدم وكلمة المرور.", "Proxy authentication failed. Check the username and password."))
+            403 -> error(tr("رفض البروكسي إنشاء نفق إنترنت إلى $TARGET_HOST:$TARGET_PORT.", "The proxy returned HTTP 403 and refused to open an internet tunnel to $TARGET_HOST:$TARGET_PORT."))
+            else -> error(tr("فشل اختبار البروكسي HTTP (الاستجابة $statusCode).", "The HTTP proxy test failed (response $statusCode)."))
         }
     }
 
@@ -110,7 +110,7 @@ internal object ProxyEndpointProbe {
     ): Result<Unit> = runCatching {
         validateEndpoint(host, port, timeoutMs)
         require((username.isBlank() && password.isBlank()) || (username.isNotBlank() && password.isNotEmpty())) {
-            "أدخل اسم المستخدم وكلمة المرور معًا، أو أوقف خيار المصادقة."
+            tr("أدخل اسم المستخدم وكلمة المرور معًا، أو أوقف خيار المصادقة.", "Authentication failed: enter both the username and password, or disable authentication.")
         }
         Socket().use { socket ->
             socket.soTimeout = timeoutMs
@@ -124,17 +124,17 @@ internal object ProxyEndpointProbe {
             output.flush()
             val version = input.readUnsignedByte()
             val method = input.readUnsignedByte()
-            if (version != 0x05) error("الخادم لا يتحدث SOCKS5 أثناء فحص UDP.")
-            if (method == 0xFF) error("رفض SOCKS5 طرق المصادقة أثناء فحص UDP.")
-            if (hasCredentials && method != 0x02) error("لم يقبل SOCKS5 مصادقة اسم المستخدم أثناء فحص UDP.")
-            if (!hasCredentials && method != 0x00) error("يتطلب SOCKS5 بيانات مصادقة؛ لم تُرسل بيانات ناقصة.")
+            if (version != 0x05) error(tr("الخادم لا يتحدث SOCKS5 أثناء فحص UDP.", "The server does not speak SOCKS5 during the UDP check."))
+            if (method == 0xFF) error(tr("رفض SOCKS5 طرق المصادقة أثناء فحص UDP.", "SOCKS5 authentication failed during the UDP check."))
+            if (hasCredentials && method != 0x02) error(tr("لم يقبل SOCKS5 مصادقة اسم المستخدم أثناء فحص UDP.", "SOCKS5 authentication failed: the server did not accept username authentication during the UDP check."))
+            if (!hasCredentials && method != 0x00) error(tr("يتطلب SOCKS5 بيانات مصادقة؛ لم تُرسل بيانات ناقصة.", "SOCKS5 authentication failed: credentials are required; incomplete credentials were not sent."))
             trace("SOCKS5 UDP: اختار الخادم طريقة المصادقة $method.")
 
             if (method == 0x02) {
                 val userBytes = username.toByteArray(StandardCharsets.UTF_8)
                 val passwordBytes = password.toByteArray(StandardCharsets.UTF_8)
                 require(userBytes.size in 1..255 && passwordBytes.size in 1..255) {
-                    "بيانات مصادقة SOCKS5 يجب ألا تتجاوز 255 بايت لكل حقل."
+                    tr("بيانات مصادقة SOCKS5 يجب ألا تتجاوز 255 بايت لكل حقل.", "SOCKS5 authentication failed: each authentication field must contain no more than 255 bytes.")
                 }
                 output.writeByte(0x01)
                 output.writeByte(userBytes.size)
@@ -145,7 +145,7 @@ internal object ProxyEndpointProbe {
                 val authVersion = input.readUnsignedByte()
                 val authStatus = input.readUnsignedByte()
                 if (authVersion != 0x01 || authStatus != 0x00) {
-                    error("رفض خادم SOCKS5 بيانات المصادقة أثناء فحص UDP.")
+                    error(tr("رفض خادم SOCKS5 بيانات المصادقة أثناء فحص UDP.", "SOCKS5 authentication failed during the UDP check."))
                 }
                 trace("SOCKS5 UDP: المصادقة قُبلت؛ بيانات الاعتماد مخفية.")
             }
@@ -161,13 +161,13 @@ internal object ProxyEndpointProbe {
                 0x01 -> InetAddress.getByAddress(ByteArray(4).also(input::readFully)).hostAddress
                 0x03 -> ByteArray(input.readUnsignedByte()).also(input::readFully).toString(StandardCharsets.UTF_8)
                 0x04 -> InetAddress.getByAddress(ByteArray(16).also(input::readFully)).hostAddress
-                else -> error("أعاد SOCKS5 نوع عنوان غير صالح لمرحّل UDP: $addressType.")
+                else -> error(tr("أعاد SOCKS5 نوع عنوان غير صالح لمرحّل UDP: $addressType.", "SOCKS5 returned an invalid address type for the relay for UDP: $addressType."))
             }
             val relayPort = input.readUnsignedShort()
             trace("رد UDP ASSOCIATE: إصدار=$replyVersion، النتيجة=$reply، relay=$relayAddress:$relayPort.")
-            if (replyVersion != 0x05) error("رد SOCKS5 غير صالح على UDP ASSOCIATE.")
-            if (reply != 0x00) error("هذا الخادم SOCKS5 لا يمنح UDP relay (رمز $reply).")
-            if (relayPort == 0) error("وافق SOCKS5 على UDP لكن لم يُرجع منفذ relay صالحًا.")
+            if (replyVersion != 0x05) error(tr("رد SOCKS5 غير صالح على UDP ASSOCIATE.", "The SOCKS5 response to UDP ASSOCIATE was invalid."))
+            if (reply != 0x00) error(tr("هذا الخادم SOCKS5 لا يمنح UDP relay (رمز $reply).", "This SOCKS5 server does not provide a UDP relay (code $reply)."))
+            if (relayPort == 0) error(tr("وافق SOCKS5 على UDP لكن لم يُرجع منفذ relay صالحًا.", "SOCKS5 accepted UDP but did not return a valid port for the relay."))
             trace("أكد SOCKS5 فتح UDP relay؛ نفق VPN يوجّه UDP إلى SOCKS5 ولا يحتوي مسار direct احتياطيًا.")
         }
     }
@@ -184,16 +184,16 @@ internal object ProxyEndpointProbe {
         val version = input.readUnsignedByte()
         val method = input.readUnsignedByte()
         trace("SOCKS5: إصدار الخادم=$version، طريقة المصادقة المختارة=$method.")
-        if (version != 0x05) error("الخادم لا يتحدث بروتوكول SOCKS5.")
-        if (method == 0xFF) error("لم يقبل خادم SOCKS5 طريقة المصادقة المحددة.")
-        if (hasCredentials && method != 0x02) error("خادم SOCKS5 لم يقبل مصادقة اسم المستخدم وكلمة المرور.")
-        if (!hasCredentials && method != 0x00) error("يتطلب هذا البروكسي اسم مستخدم وكلمة مرور؛ فعّل خيار المصادقة.")
+        if (version != 0x05) error(tr("الخادم لا يتحدث بروتوكول SOCKS5.", "The server does not speak the SOCKS5 protocol."))
+        if (method == 0xFF) error(tr("لم يقبل خادم SOCKS5 طريقة المصادقة المحددة.", "SOCKS5 authentication failed: the server rejected the selected authentication method."))
+        if (hasCredentials && method != 0x02) error(tr("خادم SOCKS5 لم يقبل مصادقة اسم المستخدم وكلمة المرور.", "SOCKS5 authentication failed: the server rejected the username and password."))
+        if (!hasCredentials && method != 0x00) error(tr("يتطلب هذا البروكسي اسم مستخدم وكلمة مرور؛ فعّل خيار المصادقة.", "Proxy authentication failed: a username and password are required. Enable authentication."))
 
         if (method == 0x02) {
             val userBytes = username.toByteArray(StandardCharsets.UTF_8)
             val passwordBytes = password.toByteArray(StandardCharsets.UTF_8)
             require(userBytes.size in 1..255 && passwordBytes.size in 1..255) {
-                "بيانات مصادقة SOCKS5 يجب ألا تتجاوز 255 بايت لكل حقل."
+                tr("بيانات مصادقة SOCKS5 يجب ألا تتجاوز 255 بايت لكل حقل.", "SOCKS5 authentication failed: each authentication field must contain no more than 255 bytes.")
             }
             output.writeByte(0x01)
             output.writeByte(userBytes.size)
@@ -204,7 +204,7 @@ internal object ProxyEndpointProbe {
             val authVersion = input.readUnsignedByte()
             val authStatus = input.readUnsignedByte()
             if (authVersion != 0x01 || authStatus != 0x00) {
-                error("رفض خادم SOCKS5 اسم المستخدم أو كلمة المرور.")
+                error(tr("رفض خادم SOCKS5 اسم المستخدم أو كلمة المرور.", "SOCKS5 authentication failed: the server rejected the username or password."))
             }
             trace("SOCKS5: قَبِل الخادم بيانات المصادقة.")
         }
@@ -221,13 +221,13 @@ internal object ProxyEndpointProbe {
         input.readUnsignedByte() // reserved
         val addressType = input.readUnsignedByte()
         trace("SOCKS5 CONNECT: إصدار=$replyVersion، نتيجة=$reply، نوع العنوان=$addressType.")
-        if (replyVersion != 0x05) error("رد SOCKS5 غير صالح أثناء اختبار الاتصال.")
-        if (reply != 0x00) error("تعذر على بروكسي SOCKS5 فتح نفق إنترنت (رمز $reply).")
+        if (replyVersion != 0x05) error(tr("رد SOCKS5 غير صالح أثناء اختبار الاتصال.", "The SOCKS5 response was invalid during the connection test."))
+        if (reply != 0x00) error(tr("تعذر على بروكسي SOCKS5 فتح نفق إنترنت (رمز $reply).", "The SOCKS5 proxy could not open an internet tunnel (code $reply)."))
         when (addressType) {
             0x01 -> input.readFully(ByteArray(4))
             0x03 -> input.readFully(ByteArray(input.readUnsignedByte()))
             0x04 -> input.readFully(ByteArray(16))
-            else -> error("أعاد بروكسي SOCKS5 عنوانًا غير صالح.")
+            else -> error(tr("أعاد بروكسي SOCKS5 عنوانًا غير صالح.", "The SOCKS5 proxy returned an invalid address."))
         }
         input.readUnsignedShort() // bound port
     }

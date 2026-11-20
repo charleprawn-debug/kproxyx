@@ -1,5 +1,7 @@
 package com.proxyplatform.app.adb
 
+import com.proxyplatform.app.tr
+
 import android.content.Context
 import android.net.LocalSocket
 import android.net.LocalSocketAddress
@@ -45,16 +47,16 @@ internal class AdbPersistentSession private constructor(
 
     @Synchronized
     fun request(command: String, timeoutMs: Long = REQUEST_TIMEOUT_MS): Result<String> = runCatching {
-        require(command.matches(REQUEST_PATTERN)) { "أمر جلسة ADB غير مدعوم." }
-        check(isAlive()) { "جلسة ADB المستمرة غير متصلة." }
+        require(command.matches(REQUEST_PATTERN)) { tr("أمر جلسة ADB غير مدعوم.", "The ADB session command is not supported.") }
+        check(isAlive()) { tr("جلسة ADB المستمرة غير متصلة.", "The persistent ADB session is not connected.") }
         withSocket(timeoutMs) { reader, writer ->
             writer.write(JSONObject().put("command", command).toString())
             writer.newLine()
             writer.flush()
-            val line = reader.readLine() ?: error("انقطعت جلسة ADB المستمرة قبل الرد.")
+            val line = reader.readLine() ?: error(tr("انقطعت جلسة ADB المستمرة قبل الرد.", "The persistent ADB session disconnected before responding."))
             val response = JSONObject(line)
             check(response.optBoolean("ok", false)) {
-                response.optString("error").ifBlank { "فشل تنفيذ عملية الجلسة." }
+                response.optString("error").ifBlank { tr("فشل تنفيذ عملية الجلسة.", "The session operation failed.") }
             }
             response.optString("result").also { result ->
                 AdvancedOperationLog.output(context, "broadcast helper $command -> $result")
@@ -98,7 +100,10 @@ internal class AdbPersistentSession private constructor(
             }
             Thread.sleep(SOCKET_POLL_MS)
         }
-        error("لم تستجب جلسة ADB خلال ${timeoutMs}ms${lastFailure?.let { ": ${it.message}"}.orEmpty()}")
+        error(tr(
+            "لم تستجب جلسة ADB خلال ${timeoutMs}ms${lastFailure?.let { ": ${it.message}"}.orEmpty()}",
+            "The ADB session did not respond within ${timeoutMs}ms${lastFailure?.let { ": ${it.message}"}.orEmpty()}",
+        ))
     }
 
     private fun <T> withSocket(timeoutMs: Long, block: (BufferedReader, BufferedWriter) -> T): T {

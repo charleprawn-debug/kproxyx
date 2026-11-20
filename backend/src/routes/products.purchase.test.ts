@@ -78,7 +78,7 @@ describe('POST /products/purchase-proxy (Server 2 / Proxy-Cheap)', () => {
     mockDb.failExecute = true;
     const options = await request(app).get('/products/purchase-options?provider=proxy-cheap&serviceId=static-residential-ipv4&planId=premium').expect(200);
     const location = options.body.data.locations.find((l: any) => l.isp === 'ISP 1' && l.state === 'Virginia');
-    const res = await request(app).post('/products/purchase-proxy').send(clientBody('premium', location.id));
+    const res = await request(app).post('/products/purchase-proxy').set('Accept-Language', 'en').send(clientBody('premium', location.id));
     expect(res.status).toBe(502);
     expect(res.body.error.message).toContain('NO_SUCH_ISP');
     expect(mockDb.rpc.map((c) => c.fn)).toEqual(['reserve_proxy_purchase', 'refund_proxy_purchase']);

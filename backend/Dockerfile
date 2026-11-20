@@ -12,6 +12,7 @@ COPY --from=build --chown=app:app /app/dist ./dist
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/package*.json ./
 COPY --chown=app:app admin ./admin
+COPY --chown=app:app landing ./landing
 USER app
 ENV NODE_ENV=production PORT=3000
 EXPOSE 3000

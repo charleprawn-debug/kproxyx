@@ -1,5 +1,7 @@
 package com.proxyplatform.app.adb
 
+import com.proxyplatform.app.tr
+
 import android.content.Context
 import android.annotation.SuppressLint
 import com.proxyplatform.app.BuildConfig
@@ -24,23 +26,23 @@ internal class AdbShizukuServerSession private constructor(
         // Reuse a live server; restarting it here would destroy an active
         // TetherService and its hotspot when the user presses Start again.
         if (isReady()) return@runCatching
-        check(adb.isConnected()) { "Wireless ADB غير متصل" }
+        check(adb.isConnected()) { tr("Wireless ADB غير متصل", "Wireless ADB is not connected.") }
         stopRemoteProcess()
         val packageName = BuildConfig.APPLICATION_ID
         val command = EmbeddedServerCommand.start(packageName)
         val launch = adb.execute(command).getOrThrow()
         check(launch.contains("Embedded server detached; pid=")) {
-            "تعذر فصل السيرفر عن جلسة ADB:\n$launch"
+            tr("تعذر فصل السيرفر عن جلسة ADB:\n$launch", "Could not detach the server from the ADB session:\n$launch")
         }
         check(waitForBinder()) {
-            val serverLog = readRemoteLog().getOrDefault("<تعذر قراءة سجل server>")
-            "انتهت مهلة انتظار Binder\n$serverLog"
+            val serverLog = readRemoteLog().getOrDefault(tr("<تعذر قراءة سجل server>", "<Could not read the server log>"))
+            tr("انتهت مهلة انتظار Binder\n$serverLog", "Timed out waiting for Binder\n$serverLog")
         }
     }
 
     suspend fun stop(): Result<Unit> = runCatching {
         stopRemoteProcess()
-        check(waitForBinder(expected = false)) { "Binder ما زال ظاهراً بعد إيقاف server" }
+        check(waitForBinder(expected = false)) { tr("Binder ما زال ظاهراً بعد إيقاف server", "Binder is still available after stopping the server.") }
     }
 
     fun isReady(): Boolean = runCatching { Shizuku.pingBinder() }.getOrDefault(false)

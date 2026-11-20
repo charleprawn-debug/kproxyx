@@ -36,10 +36,10 @@ internal object AdvancedSystemProxy {
     fun clearAll(context: Context): Result<Unit> = runCatching {
         clearProxyKeys(context)
         check(ProxyRestorePolicy.isNoProxy(read(context, "http_proxy").getOrThrow())) {
-            "تعذر إزالة إعداد بروكسي النظام."
+            tr("تعذر إزالة إعداد بروكسي النظام.", "Could not remove the ADB system proxy setting.")
         }
         check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(SNAPSHOT).remove(SNAPSHOT_SAVED).commit()) {
-            "تعذر تنظيف حالة الاستعادة المحلية."
+            tr("تعذر تنظيف حالة الاستعادة المحلية.", "Could not clear the local recovery state.")
         }
         AdvancedOperationLog.output(context, "تم تنظيف إعدادات بروكسي النظام فقط.")
     }.onFailure {
@@ -59,7 +59,7 @@ internal object AdvancedSystemProxy {
                     .putString(SNAPSHOT, snapshot.toString())
                     .putBoolean(SNAPSHOT_SAVED, true)
                     .commit()
-            ) { "تعذر حفظ إعدادات البروكسي السابقة." }
+            ) { tr("تعذر حفظ إعدادات البروكسي السابقة.", "Could not save the previous proxy settings.") }
             AdvancedOperationLog.output(context, "حُفظت نسخة الاستعادة محليًا داخل مساحة التطبيق الخاصة.")
         }
 
@@ -71,7 +71,7 @@ internal object AdvancedSystemProxy {
         }
         write(context, "http_proxy", proxy).getOrThrow()
         val actual = read(context, "http_proxy").getOrThrow()
-        check(actual == proxy) { "إعداد النظام '$actual' لا يطابق '$proxy'." }
+        check(actual == proxy) { tr("إعداد النظام '$actual' لا يطابق '$proxy'.", "The ADB system setting '$actual' does not match '$proxy'.") }
         AdvancedOperationLog.output(context, "تأكد ضبط بروكسي النظام والتحقق منه: $actual.")
     }.onFailure {
         AdvancedOperationLog.exception(context, "فشل ضبط بروكسي النظام", it)
@@ -92,7 +92,7 @@ internal object AdvancedSystemProxy {
             if (expectedProxy != null && read(context, "http_proxy").getOrThrow() == expectedProxy) {
                 clearProxyKeys(context)
                 check(ProxyRestorePolicy.isNoProxy(read(context, "http_proxy").getOrThrow())) {
-                    "تعذر تعطيل بروكسي النظام القديم."
+                    tr("تعذر تعطيل بروكسي النظام القديم.", "Could not disable the old ADB system proxy.")
                 }
                 AdvancedOperationLog.output(context, "أُزيل بروكسي loopback القديم وأُعيد اتصال Android المباشر.")
             } else {
@@ -110,7 +110,7 @@ internal object AdvancedSystemProxy {
             // The user changed the system proxy while our session was active.
             // Keep that newer value and discard only our stale recovery snapshot.
             check(prefs.edit().remove(SNAPSHOT).remove(SNAPSHOT_SAVED).commit()) {
-                "تعذر تحرير لقطة إعدادات البروكسي القديمة."
+                tr("تعذر تحرير لقطة إعدادات البروكسي القديمة.", "Could not discard the old proxy settings snapshot.")
             }
             AdvancedOperationLog.output(context, "حُفظ تغيير بروكسي النظام الذي أجراه المستخدم أثناء الجلسة، وحُذفت لقطة الاستعادة القديمة.")
             return@runCatching
@@ -128,10 +128,10 @@ internal object AdvancedSystemProxy {
             } else {
                 restored == value
             }
-            check(matches) { "تعذر استعادة إعداد النظام $key." }
+            check(matches) { tr("تعذر استعادة إعداد النظام $key.", "Could not restore ADB system setting $key.") }
         }
         check(prefs.edit().remove(SNAPSHOT).remove(SNAPSHOT_SAVED).commit()) {
-            "تعذر إنهاء استعادة إعدادات البروكسي."
+            tr("تعذر إنهاء استعادة إعدادات البروكسي.", "Could not complete restoration of the proxy settings.")
         }
         AdvancedOperationLog.output(context, "تمت استعادة إعدادات بروكسي Android والتحقق من وضع الاتصال المباشر.")
     }.onFailure {

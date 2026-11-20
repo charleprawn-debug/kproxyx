@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,9 +63,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.runtime.CompositionLocalProvider
@@ -99,13 +103,19 @@ internal data class Product(
     val country: String,
     val city: String,
     val ipType: String,
-    val daily: String,
-    val weekly: String,
-    val monthly: String,
+    private val dailyAmount: Double,
+    private val weeklyAmount: Double,
+    private val monthlyAmount: Double,
     val featured: Boolean,
-)
+) {
+    val daily: String get() = formatProductPrice(dailyAmount, tr("يوم", "day"))
+    val weekly: String get() = formatProductPrice(weeklyAmount, tr("أسبوع", "week"))
+    val monthly: String get() = formatProductPrice(monthlyAmount, tr("شهر", "month"))
+}
 internal data class MarketplaceProvider(val id: String, val number: Int, val name: String, val description: String)
-internal data class ProxyPurchasePlan(val id: String, val name: String, val durationHours: Int, val price: Double, val serviceId: String = "", val providerPlanId: String = "")
+internal data class ProxyPurchasePlan(val id: String, private val nameAr: String, val durationHours: Int, val price: Double, val serviceId: String = "", val providerPlanId: String = "", private val nameEn: String = nameAr) {
+    val name: String get() = tr(nameAr, nameEn)
+}
 internal data class ProxyPurchaseLocation(
     val id: String,
     val countryCode: String,
@@ -121,10 +131,16 @@ internal data class RemoteProxy(val id: String, val protocol: String, val host: 
 internal data class PurchasedProxy(val protocol: String, val host: String, val port: Int, val username: String, val password: String, val url: String, val expiresAt: String)
 internal data class Profile(val email: String, val name: String, val role: String, val verified: Boolean)
 internal data class Subscription(val status: String, val expires: String, val product: String, val protocol: String)
-internal data class Plan(val id: String, val name: String, val description: String, val monthly: String, val duration: String, val features: Set<String>, val featured: Boolean, val freeClaimOnce: Boolean = false, val freeDurationMinutes: Int = 0)
+internal data class Plan(val id: String, val name: String, val description: String, private val price: Double, private val durationDays: Int, val features: Set<String>, val featured: Boolean, val freeClaimOnce: Boolean = false, val freeDurationMinutes: Int = 0) {
+    val duration: String get() = tr("$durationDays يوم", "$durationDays days")
+    val monthly: String get() = formatProductPrice(price, duration)
+}
 internal data class AppUpdateState(val required: Boolean, val message: String, val updateUrl: String)
 internal data class Wallet(val balance: Double, val currency: String)
 internal data class WalletTransaction(val amount: Double, val description: String, val type: String, val createdAt: String)
+private data class LocalMessage(val ar: String, val en: String) {
+    fun text(): String = tr(ar, en)
+}
 internal data class TopUpMethod(val code: String, val name: String, val currency: String, val network: String, val address: String, val minAmount: Double, val exchangeRate: Double, val instructions: String)
 internal data class TopUpRequest(val id: String, val methodCode: String, val amount: Double, val currency: String, val expectedUsd: Double, val reference: String, val status: String, val createdAt: String)
 internal data class FeatureAccess(val advanced: Boolean = false, val sim: Boolean = false, val vpn: Boolean = false, val mockLocation: Boolean = false, val broadcast: Boolean = false)
@@ -155,7 +171,7 @@ private fun formatProductPrice(value: Double, period: String): String {
         minimumFractionDigits = 0
         maximumFractionDigits = 2
     }.format(value)
-    return "$amount دولار / $period"
+    return tr("$amount دولار / $period", "$amount USD / $period")
 }
 
 private class SessionStore(context: Context) {
@@ -191,9 +207,9 @@ internal class ApiClient(context: Context) {
         return when (val value = body.opt(key)) {
             is JSONObject -> value
             is String -> runCatching { JSONObject(value) }.getOrElse {
-                throw IllegalStateException("استجابة الخادم غير صالحة للحقل $key.")
+                throw IllegalStateException(tr("استجابة الخادم غير صالحة للحقل $key.", "The server response for field $key is invalid."))
             }
-            else -> throw IllegalStateException("استجابة الخادم لا تحتوي كائنًا صالحًا للحقل $key.")
+            else -> throw IllegalStateException(tr("استجابة الخادم لا تحتوي كائنًا صالحًا للحقل $key.", "The server response does not contain a valid object for field $key."))
         }
     }
 
@@ -201,9 +217,9 @@ internal class ApiClient(context: Context) {
         return when (val value = body.opt(key)) {
             is org.json.JSONArray -> value
             is String -> runCatching { org.json.JSONArray(value) }.getOrElse {
-                throw IllegalStateException("استجابة الخادم غير صالحة للقائمة $key.")
+                throw IllegalStateException(tr("استجابة الخادم غير صالحة للقائمة $key.", "The server response for list $key is invalid."))
             }
-            else -> throw IllegalStateException("استجابة الخادم لا تحتوي قائمة صالحة للحقل $key.")
+            else -> throw IllegalStateException(tr("استجابة الخادم لا تحتوي قائمة صالحة للحقل $key.", "The server response does not contain a valid list for field $key."))
         }
     }
 
@@ -211,6 +227,7 @@ internal class ApiClient(context: Context) {
         val builder = Request.Builder()
             .url(BuildConfig.API_BASE_URL.trimEnd('/') + path)
             .header("Accept", "application/json")
+            .header("Accept-Language", if (AppLanguage.isArabic) "ar" else "en")
         token?.let { builder.header("Authorization", "Bearer $it") }
         if (body != null) builder.method(method, body.toString().toRequestBody(jsonType)) else builder.method(method, null)
         client.newCall(builder.build()).execute().use { response ->
@@ -262,7 +279,7 @@ internal class ApiClient(context: Context) {
             AdvancedOperationLog.info(appContext, "HTTP $method $path -> ${result.code}.")
             if (result.code !in 200..299) {
                 AdvancedOperationLog.error(appContext, "HTTP request failed with status ${result.code}.")
-                throw IllegalStateException(result.body.optJSONObject("error")?.optString("message") ?: "فشل الطلب (${result.code})")
+                throw IllegalStateException(result.body.optJSONObject("error")?.optString("message") ?: tr("فشل الطلب (${result.code})", "Request failed (${result.code})"))
             }
             result.body
         } catch (failure: Exception) {
@@ -309,14 +326,14 @@ internal class ApiClient(context: Context) {
             val channelId = "kuncloak_announcements"
             val manager = appContext.getSystemService(NotificationManager::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) manager.createNotificationChannel(
-                NotificationChannel(channelId, "إعلانات Kun cloak", NotificationManager.IMPORTANCE_DEFAULT).apply { description = "رسائل الإدارة والإعلانات العامة" }
+                NotificationChannel(channelId, tr("إعلانات Kun cloak", "Kun cloak announcements"), NotificationManager.IMPORTANCE_DEFAULT).apply { description = tr("رسائل الإدارة والإعلانات العامة", "Administration messages and public announcements") }
             )
             val prefs = appContext.getSharedPreferences("shown_app_notifications", Context.MODE_PRIVATE)
             items.filter { !it.read }.take(5).forEach { item ->
                 if (!prefs.getBoolean(item.id, false)) {
                     val notification = android.app.Notification.Builder(appContext, channelId)
                         .setSmallIcon(R.drawable.ic_notification_transparent)
-                        .setContentTitle(item.title.ifBlank { "إشعار من Kun cloak" })
+                        .setContentTitle(item.title.ifBlank { tr("إشعار من Kun cloak", "Kun cloak notification") })
                         .setContentText(item.message)
                         .setStyle(android.app.Notification.BigTextStyle().bigText(item.message))
                         .setAutoCancel(true)
@@ -330,7 +347,7 @@ internal class ApiClient(context: Context) {
     fun markNotificationRead(id: String) { request("/me/notifications/$id/read", "PATCH", JSONObject()) }
     fun products(): List<Product> {
         val rows = request("/products").optJSONArray("data")
-            ?: throw IllegalStateException("استجابة السوق غير صالحة.")
+            ?: throw IllegalStateException(tr("استجابة السوق غير صالحة.", "Invalid marketplace response."))
         return (0 until rows.length()).map { index ->
             val item = rows.getJSONObject(index)
             val country = listOf(item.optString("country_name"), item.optString("country_code"))
@@ -343,9 +360,9 @@ internal class ApiClient(context: Context) {
                 country = country,
                 city = item.optString("city").trim(),
                 ipType = item.optString("ip_type").trim(),
-                daily = formatProductPrice(item.optDouble("price_daily", Double.NaN), "يوم"),
-                weekly = formatProductPrice(item.optDouble("price_weekly", Double.NaN), "أسبوع"),
-                monthly = formatProductPrice(item.optDouble("price_monthly", Double.NaN), "شهر"),
+                dailyAmount = item.optDouble("price_daily", Double.NaN),
+                weeklyAmount = item.optDouble("price_weekly", Double.NaN),
+                monthlyAmount = item.optDouble("price_monthly", Double.NaN),
                 featured = item.optBoolean("is_featured"),
             )
         }
@@ -358,7 +375,14 @@ internal class ApiClient(context: Context) {
         val enc = { value: String -> java.net.URLEncoder.encode(value, "UTF-8") }
         val query = "provider=${enc(provider)}&protocol=socks5" + (if (serviceId.isNotBlank()) "&serviceId=${enc(serviceId)}&planId=${enc(planId)}" else "")
         val x = request("/products/purchase-options?$query").getJSONObject("data")
-        val plans = x.getJSONArray("plans").let { a -> (0 until a.length()).map { i -> val p = a.getJSONObject(i); val label = p.optJSONObject("name")?.optString("ar").orEmpty().ifBlank { p.optJSONObject("name")?.optString("en") ?: p.optString("name", "خطة") }; ProxyPurchasePlan(p.optString("id", p.optString("code")), label, p.optInt("duration_hours"), p.optDouble("price"), p.optString("serviceId"), p.optString("providerPlanId")) } }
+        val plans = x.getJSONArray("plans").let { a -> (0 until a.length()).map { i ->
+            val p = a.getJSONObject(i)
+            val translatedNames = p.optJSONObject("name")
+            val plainName = (p.opt("name") as? String).orEmpty()
+            val ar = translatedNames?.optString("ar").orEmpty().ifBlank { plainName.ifBlank { translatedNames?.optString("en").orEmpty().ifBlank { "خطة" } } }
+            val en = translatedNames?.optString("en").orEmpty().ifBlank { plainName.ifBlank { translatedNames?.optString("ar").orEmpty().ifBlank { "Plan" } } }
+            ProxyPurchasePlan(p.optString("id", p.optString("code")), ar, p.optInt("duration_hours"), p.optDouble("price"), p.optString("serviceId"), p.optString("providerPlanId"), en)
+        } }
         val locations = x.getJSONArray("locations").let { a -> (0 until a.length()).map { i -> val l = a.getJSONObject(i); val c = l.optJSONObject("country"); val protocols = l.optJSONObject("protocols"); ProxyPurchaseLocation(l.optString("id"), l.optString("countryCode").ifBlank { l.optString("country_code") }.ifBlank { c?.optString("code").orEmpty() }.ifBlank { l.optString("country") }, c?.optString("name").orEmpty().ifBlank { l.optString("country") }, l.optString("state"), l.optString("isp"), setOf("http", "socks5").filter { protocols?.optBoolean(it, true) != false }.toSet()) } }
         return ProxyPurchaseOptions(x.optString("provider", provider), x.optString("protocol", "socks5"), plans, locations, x.optString("serviceId"), x.optString("proxyType"), x.optString("selectedPlanId"))
     }
@@ -376,17 +400,17 @@ internal class ApiClient(context: Context) {
         val a = request("/me/proxies").getJSONArray("data")
         return (0 until a.length()).map { i -> val x = a.getJSONObject(i); val location = x.optJSONObject("location"); RemoteProxy(x.optString("id", x.optString("order_id")), x.optString("protocol", "socks5"), x.optString("host"), x.optInt("port"), x.optString("username"), x.optString("password"), x.optString("status", "active"), x.optString("expires_at"), listOf(location?.optJSONObject("country")?.optString("name"), location?.optString("state"), location?.optString("isp")).filter { !it.isNullOrBlank() }.joinToString(" • ")) }
     }
-    fun profile(): Profile { val x = objectField(request("/me"), "data"); return Profile(x.optString("email"), x.optString("full_name", "بدون اسم"), x.optString("role", "user"), x.optBoolean("is_email_verified")) }
-    fun subscriptions(): List<Subscription> { val a = arrayField(request("/me/subscriptions"), "data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val p = x.optJSONObject("subscription_plans") ?: x.optJSONObject("proxy_products"); Subscription(x.optString("status"), x.optString("expires_at"), p?.optString("name", "الاشتراك") ?: "الاشتراك", p?.optString("protocol", "اشتراك") ?: "اشتراك") } }
+    fun profile(): Profile { val x = objectField(request("/me"), "data"); return Profile(x.optString("email"), x.optString("full_name", tr("بدون اسم", "No name")), x.optString("role", "user"), x.optBoolean("is_email_verified")) }
+    fun subscriptions(): List<Subscription> { val a = arrayField(request("/me/subscriptions"), "data"); return (0 until a.length()).map { val x = a.getJSONObject(it); val p = x.optJSONObject("subscription_plans") ?: x.optJSONObject("proxy_products"); Subscription(x.optString("status"), x.optString("expires_at"), p?.optString("name", tr("الاشتراك", "Subscription")) ?: tr("الاشتراك", "Subscription"), p?.optString("protocol", tr("اشتراك", "Subscription")) ?: tr("اشتراك", "Subscription")) } }
     fun plans(): List<Plan> {
         val body = request("/me/subscription-plans")
         val raw = body.opt("data")
         val plans = when (raw) {
             is org.json.JSONArray -> raw
             is String -> runCatching { org.json.JSONArray(raw) }.getOrElse {
-                throw IllegalStateException("استجابة الباقات غير صالحة؛ أعد المحاولة بعد استعادة اتصال الشبكة.")
+                throw IllegalStateException(tr("استجابة الباقات غير صالحة؛ أعد المحاولة بعد استعادة اتصال الشبكة.", "The plans response is invalid; try again after the network connection is restored."))
             }
-            else -> throw IllegalStateException("استجابة الباقات لا تحتوي قائمة صالحة.")
+            else -> throw IllegalStateException(tr("استجابة الباقات لا تحتوي قائمة صالحة.", "The plans response does not contain a valid list."))
         }
         return (0 until plans.length()).map { i ->
             val x = plans.getJSONObject(i)
@@ -395,8 +419,7 @@ internal class ApiClient(context: Context) {
                 .filter { flags?.optBoolean(it, false) == true }.toSet()
             Plan(
                 x.getString("id"), x.optString("name"), x.optString("description"),
-                formatProductPrice(x.optDouble("price", Double.NaN), x.optInt("duration_days", 30).toString() + " يوم"),
-                x.optInt("duration_days", 30).toString() + " يوم", features,
+                x.optDouble("price", Double.NaN), x.optInt("duration_days", 30), features,
                 x.optBoolean("is_featured"), x.optBoolean("free_claim_once"),
                 x.optInt("free_duration_minutes", 0)
             )
@@ -437,7 +460,15 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
     var updateMessage by mutableStateOf(""); private set
     var updateUrl by mutableStateOf(""); private set
     var loading by mutableStateOf(false); private set
-    var error by mutableStateOf<String?>(null); private set
+    private var rawError by mutableStateOf<String?>(null)
+    private var localError by mutableStateOf<LocalMessage?>(null)
+    var error: String?
+        get() = localError?.text() ?: rawError
+        private set(value) { localError = null; rawError = value }
+    private fun showLocalError(ar: String, en: String) {
+        rawError = null
+        localError = LocalMessage(ar, en)
+    }
     var supportTelegramUsername by mutableStateOf("eng_Eyad_saleh"); private set
 
     fun loadSupportSettings() = viewModelScope.launch(Dispatchers.IO) {
@@ -522,7 +553,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
                     supportMessages = if (offset == 0) page.messages else (supportMessages + page.messages).distinctBy { it.id }
                     unreadSupportMessageCount = page.unreadCount
                     supportMessagesHasMore = page.hasMore
-                }.onFailure { supportMessagesError = it.message ?: "تعذر تحميل رسائل الدعم." }
+                }.onFailure { supportMessagesError = it.message ?: tr("تعذر تحميل رسائل الدعم.", "Could not load support messages.") }
             }
         }
     }
@@ -537,7 +568,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
                     notifications = notifications.map { if (it.id == id) it.copy(read = true) else it }
                     supportMessages = supportMessages.map { if (it.id == id) it.copy(read = true) else it }
                     if (known?.type == "admin_broadcast") unreadSupportMessageCount = (unreadSupportMessageCount - 1).coerceAtLeast(0)
-                } else if (known?.type == "admin_broadcast") supportMessagesError = result.exceptionOrNull()?.message ?: "تعذر حفظ حالة قراءة الرسالة."
+                } else if (known?.type == "admin_broadcast") supportMessagesError = result.exceptionOrNull()?.message ?: tr("تعذر حفظ حالة قراءة الرسالة.", "Could not save the message read status.")
             }
         }
     }
@@ -576,7 +607,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
                 }
             } catch (failure: Exception) {
                 withContext(Dispatchers.Main) {
-                    error = failure.message ?: "تعذر تسجيل الدخول. تحقق من بياناتك وحاول مجددًا."
+                    if (failure.message == null) showLocalError("تعذر تسجيل الدخول. تحقق من بياناتك وحاول مجددًا.", "Could not sign in. Check your details and try again.") else error = failure.message
                     loading = false
                 }
             }
@@ -586,8 +617,8 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
     fun forgotPassword(email: String) {
         loading = true; error = null
         viewModelScope.launch(Dispatchers.IO) {
-            try { apiClient.forgotPassword(email); withContext(Dispatchers.Main) { error = "إذا كان البريد مسجلًا، سيصلك رابط آمن لإعادة تعيين كلمة المرور." } }
-            catch (failure: Exception) { withContext(Dispatchers.Main) { error = failure.message ?: "تعذر إرسال رابط الاستعادة." } }
+            try { apiClient.forgotPassword(email); withContext(Dispatchers.Main) { showLocalError("إذا كان البريد مسجلًا، سيصلك رابط آمن لإعادة تعيين كلمة المرور.", "If the email is registered, you will receive a secure password reset link.") } }
+            catch (failure: Exception) { withContext(Dispatchers.Main) { if (failure.message == null) showLocalError("تعذر إرسال رابط الاستعادة.", "Could not send the recovery link.") else error = failure.message } }
             finally { withContext(Dispatchers.Main) { loading = false } }
         }
     }
@@ -595,8 +626,8 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
     fun deviceResetPassword(email: String, newPassword: String) {
         loading = true; error = null
         viewModelScope.launch(Dispatchers.IO) {
-            try { apiClient.deviceResetPassword(email, newPassword); withContext(Dispatchers.Main) { error = "تم تغيير كلمة المرور بنجاح. استخدم كلمة المرور الجديدة لتسجيل الدخول." } }
-            catch (_: Exception) { withContext(Dispatchers.Main) { error = "تعذر إكمال الاستعادة. تحقق من البيانات وحاول مجددًا." } }
+            try { apiClient.deviceResetPassword(email, newPassword); withContext(Dispatchers.Main) { showLocalError("تم تغيير كلمة المرور بنجاح. استخدم كلمة المرور الجديدة لتسجيل الدخول.", "Password changed successfully. Use your new password to sign in.") } }
+            catch (_: Exception) { withContext(Dispatchers.Main) { showLocalError("تعذر إكمال الاستعادة. تحقق من البيانات وحاول مجددًا.", "Could not complete recovery. Check your details and try again.") } }
             finally { withContext(Dispatchers.Main) { loading = false } }
         }
     }
@@ -609,12 +640,12 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
                 apiClient.register(email, password, name)
                 withContext(Dispatchers.Main) {
                     loading = false
-                    error = "تم إنشاء الحساب. سجّل الدخول للمتابعة."
+                    showLocalError("تم إنشاء الحساب. سجّل الدخول للمتابعة.", "Account created. Sign in to continue.")
                     done()
                 }
             } catch (failure: Exception) {
                 withContext(Dispatchers.Main) {
-                    error = failure.message ?: "تعذر إنشاء الحساب. تحقق من البيانات وحاول مجددًا."
+                    if (failure.message == null) showLocalError("تعذر إنشاء الحساب. تحقق من البيانات وحاول مجددًا.", "Could not create an account. Check your details and try again.") else error = failure.message
                     loading = false
                 }
             }
@@ -625,7 +656,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
         if (marketplaceProvidersLoading || marketplaceProviders.isNotEmpty()) return@launch
         marketplaceProvidersLoading = true; marketplaceProvidersError = null
         try { marketplaceProviders = withContext(Dispatchers.IO) { apiClient.marketplaceProviders() } }
-        catch (failure: Exception) { marketplaceProvidersError = failure.message ?: "تعذر تحميل مزودي السوق." }
+        catch (failure: Exception) { marketplaceProvidersError = failure.message ?: tr("تعذر تحميل مزودي السوق.", "Could not load marketplace providers.") }
         finally { marketplaceProvidersLoading = false }
     }
 
@@ -635,21 +666,21 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
     fun loadPurchaseOptionsFor(provider: String, serviceId: String = "", planId: String = "") = viewModelScope.launch {
         purchaseLoading = true; purchaseError = null; purchaseQuote = null; purchaseOptions = null
         try { purchaseOptions = withContext(Dispatchers.IO) { apiClient.proxyPurchaseOptions(provider, serviceId, planId) } }
-        catch (failure: Exception) { purchaseError = failure.message ?: "تعذر تحميل خيارات الشراء." }
+        catch (failure: Exception) { purchaseError = failure.message ?: tr("تعذر تحميل خيارات الشراء.", "Could not load purchase options.") }
         finally { purchaseLoading = false }
     }
 
     fun loadProxyQuote(options: ProxyPurchaseOptions, plan: ProxyPurchasePlan, location: ProxyPurchaseLocation) = viewModelScope.launch {
         purchaseQuote = null
         try { purchaseQuote = withContext(Dispatchers.IO) { apiClient.proxyQuote(options, plan, location) } }
-        catch (failure: Exception) { purchaseError = failure.message ?: "تعذر حساب السعر." }
+        catch (failure: Exception) { purchaseError = failure.message ?: tr("تعذر حساب السعر.", "Could not calculate the price.") }
     }
 
     fun loadPurchaseOptions() = viewModelScope.launch {
         if (purchaseOptions != null || purchaseLoading) return@launch
         purchaseLoading = true; purchaseError = null
         try { purchaseOptions = withContext(Dispatchers.IO) { apiClient.proxyPurchaseOptions(selectedMarketplaceProvider) } }
-        catch (failure: Exception) { purchaseError = failure.message ?: "تعذر تحميل خيارات الشراء." }
+        catch (failure: Exception) { purchaseError = failure.message ?: tr("تعذر تحميل خيارات الشراء.", "Could not load purchase options.") }
         finally { purchaseLoading = false }
     }
 
@@ -657,7 +688,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
         if (remoteProxiesLoading) return@launch
         remoteProxiesLoading = true; remoteProxiesError = null
         try { remoteProxies = withContext(Dispatchers.IO) { apiClient.proxies() } }
-        catch (failure: Exception) { remoteProxiesError = failure.message ?: "تعذر تحميل بروكسياتك." }
+        catch (failure: Exception) { remoteProxiesError = failure.message ?: tr("تعذر تحميل بروكسياتك.", "Could not load your proxies.") }
         finally { remoteProxiesLoading = false }
     }
 
@@ -670,10 +701,11 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
         } catch (failure: Exception) {
             productsError = when {
                 failure.message.orEmpty().contains("Could not load products", ignoreCase = true) ->
-                    "خدمة السوق غير متاحة مؤقتًا. أعد المحاولة بعد قليل."
-                failure.message.orEmpty().contains("استجابة السوق", ignoreCase = true) ->
-                    "وصل رد غير مكتمل من خدمة السوق. أعد المحاولة."
-                else -> "تعذر الاتصال بخدمة السوق. تحقق من الإنترنت ثم أعد المحاولة."
+                    tr("خدمة السوق غير متاحة مؤقتًا. أعد المحاولة بعد قليل.", "The marketplace is temporarily unavailable. Try again shortly.")
+                failure.message.orEmpty().contains("استجابة السوق", ignoreCase = true) ||
+                    failure.message.orEmpty().contains("Invalid marketplace response", ignoreCase = true) ->
+                    tr("وصل رد غير مكتمل من خدمة السوق. أعد المحاولة.", "The marketplace returned an incomplete response. Try again.")
+                else -> tr("تعذر الاتصال بخدمة السوق. تحقق من الإنترنت ثم أعد المحاولة.", "Could not connect to the marketplace. Check your internet connection and try again.")
             }
         } finally {
             productsLoading = false
@@ -685,7 +717,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
         try {
             val result = withContext(Dispatchers.IO) { apiClient.purchaseProxy(options, plan, location, username, password) }
             purchasedProxy = result; purchaseOptions = null; onSuccess(result)
-        } catch (failure: Exception) { purchaseError = failure.message ?: "تعذر إتمام شراء البروكسي." }
+        } catch (failure: Exception) { purchaseError = failure.message ?: tr("تعذر إتمام شراء البروكسي.", "Could not complete the proxy purchase.") }
         finally { purchaseLoading = false }
     }
 
@@ -700,7 +732,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
             profile = withContext(Dispatchers.IO) { apiClient.profile() }
             profileLoaded = true
         } catch (failure: Exception) {
-            profileError = failure.message ?: "تعذر تحميل بيانات الحساب. أعد المحاولة."
+            profileError = failure.message ?: tr("تعذر تحميل بيانات الحساب. أعد المحاولة.", "Could not load account details. Try again.")
         } finally {
             profileLoading = false
         }
@@ -714,7 +746,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
             subscriptions = withContext(Dispatchers.IO) { apiClient.subscriptions() }
             subscriptionsLoaded = true
         } catch (failure: Exception) {
-            subscriptionsError = failure.message ?: "تعذر تحميل الاشتراكات. أعد المحاولة."
+            subscriptionsError = failure.message ?: tr("تعذر تحميل الاشتراكات. أعد المحاولة.", "Could not load subscriptions. Try again.")
         } finally {
             subscriptionsLoading = false
         }
@@ -736,7 +768,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
                 val result = runCatching { apiClient.plans() }
                 withContext(Dispatchers.Main) {
                     result.onSuccess { plans = it; plansLoaded = true }
-                        .onFailure { plansError = it.message ?: "تعذر تحميل الخطط." }
+                        .onFailure { plansError = it.message ?: tr("تعذر تحميل الخطط.", "Could not load plans.") }
                     plansLoading = false
                 }
             }
@@ -744,7 +776,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
                 val result = runCatching { apiClient.wallet() }
                 withContext(Dispatchers.Main) {
                     result.onSuccess { wallet = it; walletLoaded = true }
-                        .onFailure { walletError = it.message ?: "تعذر تحميل الرصيد." }
+                        .onFailure { walletError = it.message ?: tr("تعذر تحميل الرصيد.", "Could not load the balance.") }
                     walletLoading = false
                 }
             }
@@ -752,7 +784,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
                 val result = runCatching { apiClient.featureAccess() }
                 withContext(Dispatchers.Main) {
                     result.onSuccess { access = it; accessLoaded = true }
-                        .onFailure { accessError = it.message ?: "تعذر التحقق من صلاحيات الحساب." }
+                        .onFailure { accessError = it.message ?: tr("تعذر التحقق من صلاحيات الحساب.", "Could not check account permissions.") }
                     accessLoading = false
                 }
             }
@@ -765,7 +797,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
             val result = apiClient.featureAccess()
             withContext(Dispatchers.Main) { access = result; accessLoaded = true }
         } catch (failure: Exception) {
-            withContext(Dispatchers.Main) { accessError = failure.message ?: "تعذر التحقق من صلاحيات الحساب." }
+            withContext(Dispatchers.Main) { accessError = failure.message ?: tr("تعذر التحقق من صلاحيات الحساب.", "Could not check account permissions.") }
         } finally {
             withContext(Dispatchers.Main) { accessLoading = false }
         }
@@ -804,7 +836,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
             topUpCreated = withContext(Dispatchers.IO) { apiClient.createTopUp(method.code, amount) }
             loadWalletDetails(force = true)
         }
-        catch (failure: Exception) { topUpError = failure.message ?: "تعذر إنشاء طلب الشحن." }
+        catch (failure: Exception) { topUpError = failure.message ?: tr("تعذر إنشاء طلب الشحن.", "Could not create a top-up request.") }
         finally { topUpLoading = false }
     }
 
@@ -817,7 +849,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
             loadPlansAndWallet(force = true)
             done()
         }
-        catch (failure: Exception) { topUpError = failure.message ?: "تعذر إرسال عملية التحقق." }
+        catch (failure: Exception) { topUpError = failure.message ?: tr("تعذر إرسال عملية التحقق.", "Could not submit verification.") }
         finally { topUpLoading = false }
     }
 
@@ -840,7 +872,7 @@ internal class AppViewModel(internal val apiClient: ApiClient) : ViewModel() {
             loadPlansAndWallet(force = true)
             loadSubscriptions(force = true)
         } catch (failure: Exception) {
-            activationError = failure.message ?: "تعذر تفعيل الخطة. تحقق من رصيد المحفظة."
+            activationError = failure.message ?: tr("تعذر تفعيل الخطة. تحقق من رصيد المحفظة.", "Could not activate the plan. Check your wallet balance.")
         } finally {
             activatingPlanId = null
         }
@@ -900,14 +932,33 @@ class MainActivity : ComponentActivity() {
 
 @Composable private fun ProxyPlatformApp(vm: AppViewModel) {
     var repairOpen by remember { mutableStateOf(false) }
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+    val isArabic = AppLanguage.isArabic
+    CompositionLocalProvider(LocalLayoutDirection provides if (isArabic) LayoutDirection.Rtl else LayoutDirection.Ltr) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            when {
-                !vm.updateCheckComplete -> UpdateCheckingScreen()
-                vm.updateRequired -> AppUpdateRequiredScreen(vm.updateMessage, vm.updateUrl)
-                vm.loggedIn -> MainShell(vm)
-                repairOpen -> AdbScreen(vm, PaddingValues(), recoveryMode = true, onBack = { repairOpen = false })
-                else -> AuthScreen(vm, onOpenRepair = { repairOpen = true })
+            Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val targetDescription = tr("التبديل إلى الإنجليزية", "Switch to Arabic")
+                    OutlinedButton(
+                        onClick = { AppLanguage.isArabic = !isArabic },
+                        modifier = Modifier.semantics { contentDescription = targetDescription },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    ) {
+                        Text(if (isArabic) "English" else "العربية", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when {
+                        !vm.updateCheckComplete -> UpdateCheckingScreen()
+                        vm.updateRequired -> AppUpdateRequiredScreen(vm.updateMessage, vm.updateUrl)
+                        vm.loggedIn -> MainShell(vm)
+                        repairOpen -> AdbScreen(vm, PaddingValues(), recoveryMode = true, onBack = { repairOpen = false })
+                        else -> AuthScreen(vm, onOpenRepair = { repairOpen = true })
+                    }
+                }
             }
         }
     }
@@ -917,7 +968,7 @@ class MainActivity : ComponentActivity() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             CircularProgressIndicator(color = KunPalette.Primary)
-            Text("جارٍ التحقق من إصدار التطبيق…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("جارٍ التحقق من إصدار التطبيق…", "Checking the app version…"), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -926,9 +977,9 @@ class MainActivity : ComponentActivity() {
     val context = LocalContext.current
     val fallbackUrl = "https://kuncloak.work.gd:10059/"
     Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("يتطلب التطبيق تحديثًا", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = KunPalette.Primary)
-        Text(message.ifBlank { "يتوفر إصدار جديد من التطبيق. حدّث التطبيق للمتابعة." }, modifier = Modifier.padding(top = 14.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl.ifBlank { fallbackUrl }))) }, modifier = Modifier.fillMaxWidth().padding(top = 28.dp), shape = RoundedCornerShape(15.dp)) { Text("تحديث التطبيق", fontWeight = FontWeight.Bold) }
+        Text(tr("يتطلب التطبيق تحديثًا", "App update required"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = KunPalette.Primary)
+        Text(message.ifBlank { tr("يتوفر إصدار جديد من التطبيق. حدّث التطبيق للمتابعة.", "A new version of the app is available. Update the app to continue.") }, modifier = Modifier.padding(top = 14.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl.ifBlank { fallbackUrl }))) }, modifier = Modifier.fillMaxWidth().padding(top = 28.dp), shape = RoundedCornerShape(15.dp)) { Text(tr("تحديث التطبيق", "Update app"), fontWeight = FontWeight.Bold) }
     }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -994,11 +1045,11 @@ class MainActivity : ComponentActivity() {
     var mockLocationAuthorized by remember { mutableStateOf<Boolean?>(null) }
     var mockLocationStatus by remember {
         mutableStateOf(
-            if (mockLocation) "اضغط التحقق لاختيار التطبيق قبل الاتصال." else "غير مفعّل"
+            if (mockLocation) tr("اضغط التحقق لاختيار التطبيق قبل الاتصال.", "Tap Verify to select the app before connecting.") else tr("غير مفعّل", "Disabled")
         )
     }
     var featureLoading by remember { mutableStateOf(false) }
-    var featureStatus by remember { mutableStateOf<String?>(null) }
+    var featureStatus by remember { mutableStateOf<LocalMessage?>(null) }
     fun hasNotificationPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
         return ContextCompat.checkSelfPermission(
@@ -1015,11 +1066,11 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            mockLocationStatus = "تم منح إذن الموقع التقريبي اللازم لخدمات Google؛ جارٍ استكمال الاتصال…"
+            mockLocationStatus = tr("تم منح إذن الموقع التقريبي اللازم لخدمات Google؛ جارٍ استكمال الاتصال…", "Approximate location permission for Google services was granted; continuing connection…")
             error = null
         } else {
-            mockLocationStatus = "يلزم إذن الموقع التقريبي كي تستقبل خدمات Google إحداثيات الموقع الوهمي."
-            error = "لم يُمنح إذن الموقع التقريبي؛ لم يبدأ الاتصال ولم نقرأ موقعك الحقيقي."
+            mockLocationStatus = tr("يلزم إذن الموقع التقريبي كي تستقبل خدمات Google إحداثيات الموقع الوهمي.", "Approximate location permission is required for Google services to receive mock location coordinates.")
+            error = tr("لم يُمنح إذن الموقع التقريبي؛ لم يبدأ الاتصال ولم نقرأ موقعك الحقيقي.", "Approximate location permission was not granted; the connection was not started and your real location was not read.")
         }
     }
 
@@ -1037,7 +1088,7 @@ class MainActivity : ComponentActivity() {
         if (RootWebRtcController.hasPendingRestore(context) &&
             !withContext(Dispatchers.IO) { ProxyLocalService.isListenerReady(context) }) {
             val result = withContext(Dispatchers.IO) { RootWebRtcController.restore(context) }
-            if (result.isFailure) error = "تحتاج حماية جلسة سابقة إلى استعادة: ${result.exceptionOrNull()?.message}"
+            if (result.isFailure) error = tr("تحتاج حماية جلسة سابقة إلى استعادة: ${result.exceptionOrNull()?.message}", "Protection from a previous session needs to be restored: ${result.exceptionOrNull()?.message}")
         }
         while (true) {
             rootAvailable = withContext(Dispatchers.IO) { RootWebRtcController.isRootAvailable() }
@@ -1069,7 +1120,7 @@ class MainActivity : ComponentActivity() {
                 highProtection = enabling
                 if (enabling) rootAvailable = true
             } else {
-                error = "تعذر تغيير الحماية العالية: ${result.exceptionOrNull()?.message}"
+                error = tr("تعذر تغيير الحماية العالية: ${result.exceptionOrNull()?.message}", "Could not change high protection: ${result.exceptionOrNull()?.message}")
             }
             rootBusy = false
         }
@@ -1079,7 +1130,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) {
         if (mockLocation) {
-            mockLocationStatus = "جارٍ التحقق من صلاحية الموقع الوهمي…"
+            mockLocationStatus = tr("جارٍ التحقق من صلاحية الموقع الوهمي…", "Checking mock location permission…")
             coroutineScope.launch {
                 val result = withContext(Dispatchers.IO) {
                     locationController.checkMockLocationAccess()
@@ -1087,9 +1138,9 @@ class MainActivity : ComponentActivity() {
                 mockLocationAuthorized = result.isSuccess
                 val cause = result.exceptionOrNull()
                 mockLocationStatus = when {
-                    result.isSuccess -> "تم اختيار التطبيق؛ صلاحية الموقع الوهمي جاهزة."
-                    cause is SecurityException -> "لم يتم اختيار التطبيق بعد. اختر Kun cloak ثم ارجع إلى التطبيق."
-                    else -> "تعذر التحقق من إعداد الموقع الوهمي؛ راجع سبب المشكلة أدناه."
+                    result.isSuccess -> tr("تم اختيار التطبيق؛ صلاحية الموقع الوهمي جاهزة.", "App selected; mock location permission is ready.")
+                    cause is SecurityException -> tr("لم يتم اختيار التطبيق بعد. اختر Kun cloak ثم ارجع إلى التطبيق.", "The app has not been selected yet. Select Kun cloak, then return to the app.")
+                    else -> tr("تعذر التحقق من إعداد الموقع الوهمي؛ راجع سبب المشكلة أدناه.", "Could not verify mock location settings; see the problem details below.")
                 }
                 if (result.isFailure) {
                     error = ProxyFailureMessages.mockLocation(
@@ -1113,7 +1164,7 @@ class MainActivity : ComponentActivity() {
                 Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
             )
         }.onFailure {
-            error = ProxyFailureMessages.settingsPage("خيارات المطوّر ثم اختيار تطبيق الموقع الوهمي")
+            error = ProxyFailureMessages.settingsPage(tr("خيارات المطوّر ثم اختيار تطبيق الموقع الوهمي", "Developer options, then Select mock location app"))
         }
     }
 
@@ -1128,7 +1179,7 @@ class MainActivity : ComponentActivity() {
         password = profile.password
         coroutineScope.launch {
             runCatching { withContext(Dispatchers.IO) { profileStore.select(profile.id); api.selectSavedProxy(profile.id) } }
-                .onFailure { error = ProxyFailureMessages.savedProxy(it.message, "حفظ اختيار البروكسي") }
+                .onFailure { error = ProxyFailureMessages.savedProxy(it.message, tr("حفظ اختيار البروكسي", "save proxy selection")) }
         }
     }
 
@@ -1150,7 +1201,7 @@ class MainActivity : ComponentActivity() {
                 password = saved.password
                 error = null
                 AdvancedOperationLog.output(context, "حُفظ إعداد بروكسي محليًا في قاعدة البيانات المشفرة.")
-            }.onFailure { error = ProxyFailureMessages.savedProxy(it.message, "حفظ البروكسي") }
+            }.onFailure { error = ProxyFailureMessages.savedProxy(it.message, tr("حفظ البروكسي", "save proxy")) }
         }
     }
 
@@ -1172,14 +1223,14 @@ class MainActivity : ComponentActivity() {
                     selectedSavedProxyId = null
                     host = ""; port = ""; username = ""; password = ""; auth = false
                 }
-            }.onFailure { error = ProxyFailureMessages.savedProxy(it.message, "حذف البروكسي المحفوظ") }
+            }.onFailure { error = ProxyFailureMessages.savedProxy(it.message, tr("حذف البروكسي المحفوظ", "delete saved proxy")) }
         }
     }
 
     suspend fun ensureFeatureProxy(): Int {
-        check(selectedSavedProxyId != null && host.isNotBlank()) { "اختر بروكسيًا محفوظًا أولًا." }
+        check(selectedSavedProxyId != null && host.isNotBlank()) { tr("اختر بروكسيًا محفوظًا أولًا.", "Select a saved proxy first.") }
         val parsedPort = port.toIntOrNull()
-        check(parsedPort in 1..65535) { "بيانات البروكسي المختار غير صالحة." }
+        check(parsedPort in 1..65535) { tr("بيانات البروكسي المختار غير صالحة.", "The selected proxy details are invalid.") }
         if (FeatureProxyService.isRunning(context) && FeatureProxyService.isListenerReady(context)) {
             return FeatureProxyService.localPort(context)
         }
@@ -1194,43 +1245,43 @@ class MainActivity : ComponentActivity() {
             if (FeatureProxyService.isRunning(context) && FeatureProxyService.isListenerReady(context)) return FeatureProxyService.localPort(context)
             delay(250)
         }
-        throw IllegalStateException(FeatureProxyService.lastError(context) ?: "تعذر تشغيل خدمة الميزات المستقلة.")
+        throw IllegalStateException(FeatureProxyService.lastError(context) ?: tr("تعذر تشغيل خدمة الميزات المستقلة.", "Could not start the independent features service."))
     }
 
     fun applyFeatureTimezone() {
-        if (!wirelessReady) { featureStatus = "فعّل اتصال ADB أولًا من تبويب ADB."; return }
-        featureLoading = true; featureStatus = "جارٍ تحديد المنطقة الزمنية عبر البروكسي…"
+        if (!wirelessReady) { featureStatus = LocalMessage("فعّل اتصال ADB أولًا من تبويب ADB.", "First enable ADB connection from the ADB tab."); return }
+        featureLoading = true; featureStatus = LocalMessage("جارٍ تحديد المنطقة الزمنية عبر البروكسي…", "Detecting the time zone via the proxy…")
         coroutineScope.launch {
             runCatching {
                 val port = withContext(Dispatchers.IO) { ensureFeatureProxy() }
                 val timezone = withContext(Dispatchers.IO) { locationController.fetchProxyTimezone(port) }
                 withContext(Dispatchers.IO) { AdvancedProxyTimezoneController.apply(context, timezone).getOrThrow() }
-                featureStatus = "تم تطبيق المنطقة الزمنية: ${timezone.id}"
-            }.onFailure { featureStatus = "تعذر تطبيق المنطقة الزمنية: ${it.message ?: "تحقق من ADB والبروكسي."}" }
+                featureStatus = LocalMessage("تم تطبيق المنطقة الزمنية: ${timezone.id}", "Successfully applied time zone: ${timezone.id}")
+            }.onFailure { featureStatus = LocalMessage("تعذر تطبيق المنطقة الزمنية: ${it.message ?: "تحقق من ADB والبروكسي."}", "Could not apply the time zone: ${it.message ?: "Check ADB and the proxy."}") }
             featureLoading = false
         }
     }
 
     fun restoreFeatureTimezone() {
-        if (!wirelessReady) { featureStatus = "فعّل اتصال ADB أولًا من تبويب ADB."; return }
+        if (!wirelessReady) { featureStatus = LocalMessage("فعّل اتصال ADB أولًا من تبويب ADB.", "First enable ADB connection from the ADB tab."); return }
         featureLoading = true
         coroutineScope.launch(Dispatchers.IO) {
             val result = AdvancedProxyTimezoneController.restore(context)
             withContext(Dispatchers.Main) {
                 featureLoading = false
-                featureStatus = result.fold({ "تمت استعادة المنطقة الزمنية الأصلية." }, { "تعذرت الاستعادة: ${it.message}" })
+                featureStatus = result.fold({ LocalMessage("تمت استعادة المنطقة الزمنية الأصلية.", "Successfully restored the original time zone.") }, { LocalMessage("تعذرت الاستعادة: ${it.message}", "Could not restore: ${it.message}") })
             }
         }
     }
 
     fun startIndependentLocation() {
-        if (locationMode == "manual" && (latitude.toDoubleOrNull() == null || longitude.toDoubleOrNull() == null)) { featureStatus = "أدخل خط العرض وخط الطول بشكل صحيح."; return }
+        if (locationMode == "manual" && (latitude.toDoubleOrNull() == null || longitude.toDoubleOrNull() == null)) { featureStatus = LocalMessage("أدخل خط العرض وخط الطول بشكل صحيح.", "Enter a valid latitude and longitude."); return }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            featureStatus = "يلزم إذن الموقع التقريبي لتشغيل الموقع الوهمي."
+            featureStatus = LocalMessage("يلزم إذن الموقع التقريبي لتشغيل الموقع الوهمي.", "Approximate location permission is required to start mock location.")
             coarseLocationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
             return
         }
-        featureLoading = true; featureStatus = "جارٍ تشغيل الموقع الوهمي…"
+        featureLoading = true; featureStatus = LocalMessage("جارٍ تشغيل الموقع الوهمي…", "Starting mock location…")
         coroutineScope.launch {
             runCatching {
                 locationController.checkMockLocationAccess().getOrThrow()
@@ -1242,8 +1293,8 @@ class MainActivity : ComponentActivity() {
                 }
                 result.getOrThrow()
                 mockLocationAuthorized = true
-                featureStatus = "الموقع الوهمي يعمل كخدمة مستقلة عن تشغيل البروكسي."
-            }.onFailure { featureStatus = "تعذر تشغيل الموقع الوهمي: ${it.message ?: "تحقق من الصلاحيات."}" }
+                featureStatus = LocalMessage("الموقع الوهمي يعمل كخدمة مستقلة عن تشغيل البروكسي.", "Mock location is running independently of the proxy.")
+            }.onFailure { featureStatus = LocalMessage("تعذر تشغيل الموقع الوهمي: ${it.message ?: "تحقق من الصلاحيات."}", "Could not start mock location: ${it.message ?: "Check permissions."}") }
             featureLoading = false
         }
     }
@@ -1252,7 +1303,7 @@ class MainActivity : ComponentActivity() {
         locationController.stop()
         FeatureProxyService.stop(context)
         mockLocationAuthorized = false
-        featureStatus = "تم إيقاف الموقع الوهمي."
+        featureStatus = LocalMessage("تم إيقاف الموقع الوهمي.", "Successfully stopped mock location.")
     }
 
     LaunchedEffect(Unit) {
@@ -1275,7 +1326,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             .onFailure {
-                error = ProxyFailureMessages.savedProxy(it.message, "فتح قاعدة بيانات البروكسيات المحفوظة")
+                error = ProxyFailureMessages.savedProxy(it.message, tr("فتح قاعدة بيانات البروكسيات المحفوظة", "open the saved proxies database"))
                 AdvancedOperationLog.error(context, "تعذر تحميل بيانات اعتماد البروكسي المشفرة.")
             }
         if (!ProxyLocalService.isRunning(context) &&
@@ -1311,23 +1362,23 @@ class MainActivity : ComponentActivity() {
 
     fun startLocation() {
         if (!mockLocation) {
-            mockLocationStatus = "غير مفعّل"
+            mockLocationStatus = tr("غير مفعّل", "Disabled")
             return
         }
-        mockLocationStatus = "جارٍ تحديد الموقع وتفعيله…"
+        mockLocationStatus = tr("جارٍ تحديد الموقع وتفعيله…", "Determining and enabling the location…")
         val onStatus: (Result<Pair<Double, Double>>) -> Unit = { result ->
             coroutineScope.launch(Dispatchers.Main.immediate) {
                 result.fold(
                     onSuccess = { coordinates ->
                         mockLocationAuthorized = true
-                        mockLocationStatus = "موقع الخرائط الوهمي فعّال (Fused) — ${"%.4f".format(coordinates.first)}, ${"%.4f".format(coordinates.second)}."
+                        mockLocationStatus = tr("موقع الخرائط الوهمي فعّال (Fused) — ${"%.4f".format(coordinates.first)}, ${"%.4f".format(coordinates.second)}.", "Mock map location is active (Fused) — ${"%.4f".format(coordinates.first)}, ${"%.4f".format(coordinates.second)}.")
                     },
                     onFailure = { failure ->
                         if (failure is SecurityException) mockLocationAuthorized = false
                         mockLocationStatus = if (failure is SecurityException) {
-                            "Android لم يعتمد اختيار التطبيق؛ افتح خيارات المطوّر واختر Kun cloak."
+                            tr("Android لم يعتمد اختيار التطبيق؛ افتح خيارات المطوّر واختر Kun cloak.", "Android did not accept the app selection; open Developer options and select Kun cloak.")
                         } else {
-                            "تعذر إرسال الإحداثيات؛ راجع سبب المشكلة وخطوات الإصلاح أدناه."
+                            tr("تعذر إرسال الإحداثيات؛ راجع سبب المشكلة وخطوات الإصلاح أدناه.", "Could not send coordinates; see the problem and repair steps below.")
                         }
                         AdvancedOperationLog.exception(context, "تعذر تشغيل/تحديث الموقع الوهمي", failure)
                         error = ProxyFailureMessages.mockLocation(
@@ -1391,7 +1442,7 @@ class MainActivity : ComponentActivity() {
                     AdvancedOperationLog.error(context, "لم تصبح خدمة البروكسي والمنفذ المحلي جاهزين خلال المهلة.")
                     Result.failure(
                         IllegalStateException(
-                            ProxyLocalService.lastError(context) ?: "لم تبدأ خدمة البروكسي المحلي."
+                            ProxyLocalService.lastError(context) ?: tr("لم تبدأ خدمة البروكسي المحلي.", "The local proxy service did not start.")
                         )
                     )
                 } else {
@@ -1411,7 +1462,7 @@ class MainActivity : ComponentActivity() {
                         val failure = proxyRestore.exceptionOrNull()
                         Result.failure(
                             IllegalStateException(
-                                failure?.message ?: "توقفت خدمة البروكسي أثناء إعداد النظام."
+                                failure?.message ?: tr("توقفت خدمة البروكسي أثناء إعداد النظام.", "The proxy service stopped while configuring the system.")
                             )
                         )
                     } else {
@@ -1449,7 +1500,7 @@ class MainActivity : ComponentActivity() {
                 error = ProxyFailureMessages.connection(advanced = true, details = cause?.message)
                 if (restoreResult.isFailure) {
                     AdvancedOperationLog.error(context, "فشلت الاستعادة؛ أُبقيت الخدمة المحلية لتفادي انقطاع المرور.")
-                    error += "\nتنبيه: لم تكتمل الاستعادة، لذلك أبقينا البروكسي نشطًا لتجنّب قطع المرور. أعد اتصال ADB ثم حاول الاستعادة مجددًا."
+                    error += tr("\nتنبيه: لم تكتمل الاستعادة، لذلك أبقينا البروكسي نشطًا لتجنّب قطع المرور. أعد اتصال ADB ثم حاول الاستعادة مجددًا.", "\nWarning: restoration did not complete, so the proxy remains active to avoid interrupting traffic. Reconnect ADB and try restoring again.")
                 }
             }
         }
@@ -1548,15 +1599,15 @@ class MainActivity : ComponentActivity() {
     fun requestStart() {
         val parsedPort = port.toIntOrNull()
         if (selectedSavedProxyId == null) {
-            error = "أضف بروكسيًا واحفظه ثم اختره قبل بدء الاتصال."
+            error = tr("أضف بروكسيًا واحفظه ثم اختره قبل بدء الاتصال.", "Add and save a proxy, then select it before connecting.")
             return
         }
         if (host.isBlank() || parsedPort !in 1..65535 || (auth && username.isBlank())) {
-            error = "أدخل المضيف والمنفذ وبيانات المصادقة بشكل صحيح."
+            error = tr("أدخل المضيف والمنفذ وبيانات المصادقة بشكل صحيح.", "Enter a valid host, port, and authentication details.")
             return
         }
         if (auth && password.isBlank()) {
-            error = "أدخل كلمة مرور البروكسي أو أوقف خيار المصادقة."
+            error = tr("أدخل كلمة مرور البروكسي أو أوقف خيار المصادقة.", "Enter the proxy password or disable authentication.")
             return
         }
         error = null
@@ -1632,8 +1683,8 @@ class MainActivity : ComponentActivity() {
     ) {
         item {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(KunPalette.SurfaceSoft).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                FilterChip(selected = featureTab == "connection", onClick = { featureTab = "connection" }, label = { Text("الاتصال") }, modifier = Modifier.weight(1f))
-                FilterChip(selected = featureTab == "advanced", onClick = { featureTab = "advanced" }, label = { Text("خيارات متقدمة") }, modifier = Modifier.weight(1f))
+                FilterChip(selected = featureTab == "connection", onClick = { featureTab = "connection" }, label = { Text(tr("الاتصال", "Connection")) }, modifier = Modifier.weight(1f))
+                FilterChip(selected = featureTab == "advanced", onClick = { featureTab = "advanced" }, label = { Text(tr("خيارات متقدمة", "Advanced options")) }, modifier = Modifier.weight(1f))
             }
         }
         if (featureTab == "connection") item {
@@ -1642,32 +1693,32 @@ class MainActivity : ComponentActivity() {
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (mode == "advanced" && !wirelessReady) AdbRequiredPanel(
                     modifier = Modifier.fillMaxWidth(),
-                    title = "البروكسي المتقدم",
-                    description = "اتصل عبر صفحة ADB لبدء البروكسي. استعادة الحماية السابقة متاحة دون ADB.",
+                    title = tr("البروكسي المتقدم", "Advanced proxy"),
+                    description = tr("اتصل عبر صفحة ADB لبدء البروكسي. استعادة الحماية السابقة متاحة دون ADB.", "Connect via the ADB page to start the proxy. Previous protection can be restored without ADB."),
                     onGoToAdb = onGoToAdb,
                 )
-                Text("طريقة الاتصال", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(tr("طريقة الاتصال", "Connection method"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 if (vpnAllowed && advancedAllowed) {
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        ModeOptionCard("VPN", "اتصال آمن", mode == "vpn", !running && !starting && !checkingEndpoint && !rootBusy && !firewallPending, Modifier.weight(1f)) { mode = "vpn"; error = null }
-                        ModeOptionCard("متقدم", "بروكسي النظام عبر ADB", mode == "advanced", !running && !starting && !checkingEndpoint && !rootBusy, Modifier.weight(1f)) { mode = "advanced"; error = null }
+                        ModeOptionCard("VPN", tr("اتصال آمن", "Secure connection"), mode == "vpn", !running && !starting && !checkingEndpoint && !rootBusy && !firewallPending, Modifier.weight(1f)) { mode = "vpn"; error = null }
+                        ModeOptionCard(tr("متقدم", "Advanced"), tr("بروكسي النظام عبر ADB", "System proxy via ADB"), mode == "advanced", !running && !starting && !checkingEndpoint && !rootBusy, Modifier.weight(1f)) { mode = "advanced"; error = null }
                     }
                 } else if (vpnAllowed) {
-                    ModeOptionCard("VPN", "اتصال آمن", true, !running && !starting && !checkingEndpoint, Modifier.fillMaxWidth()) { mode = "vpn"; error = null }
+                    ModeOptionCard("VPN", tr("اتصال آمن", "Secure connection"), true, !running && !starting && !checkingEndpoint, Modifier.fillMaxWidth()) { mode = "vpn"; error = null }
                 } else {
-                    ModeOptionCard("متقدم", "بروكسي النظام عبر ADB", true, !running && !starting && !checkingEndpoint, Modifier.fillMaxWidth()) { mode = "advanced"; error = null }
+                    ModeOptionCard(tr("متقدم", "Advanced"), tr("بروكسي النظام عبر ADB", "System proxy via ADB"), true, !running && !starting && !checkingEndpoint, Modifier.fillMaxWidth()) { mode = "advanced"; error = null }
                 }
-                ExpandableDetails("معلومات الاتصال") {
+                ExpandableDetails(tr("معلومات الاتصال", "Connection information")) {
                     Text(
-                        if (mode == "vpn") "اتصال VPN يبدأ بعد موافقة Android؛ لا يتطلب إعداد المطوّر."
-                        else "يتطلب الوضع المتقدم اتصال Wireless ADB، ويعمل مع التطبيقات التي تحترم بروكسي النظام.",
+                        if (mode == "vpn") tr("اتصال VPN يبدأ بعد موافقة Android؛ لا يتطلب إعداد المطوّر.", "The VPN connection starts after Android approval; developer setup is not required.")
+                        else tr("يتطلب الوضع المتقدم اتصال Wireless ADB، ويعمل مع التطبيقات التي تحترم بروكسي النظام.", "Advanced mode requires a Wireless ADB connection and works with apps that respect the system proxy."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 if (mode == "vpn") {
                     Text(
-                        "يتم تكييف الاتصال تلقائيًا مع قدرات البروكسي؛ بروكسيات SOCKS5 التي لا تدعم UDP تعمل عبر TCP بشكل طبيعي.",
+                        tr("يتم تكييف الاتصال تلقائيًا مع قدرات البروكسي؛ بروكسيات SOCKS5 التي لا تدعم UDP تعمل عبر TCP بشكل طبيعي.", "The connection automatically adapts to proxy capabilities; SOCKS5 proxies without UDP support work normally over TCP."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
@@ -1686,28 +1737,28 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 4.dp),
                         ) {
                             if (rootBusy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Text(if (highProtection) "حماية عالية — مفعّلة" else "حماية عالية", Modifier.padding(horizontal = 8.dp))
+                            Text(if (highProtection) tr("حماية عالية — مفعّلة", "High protection — enabled") else tr("حماية عالية", "High protection"), Modifier.padding(horizontal = 8.dp))
                         }
                         Box(Modifier.align(Alignment.TopEnd).size(10.dp)
                             .background(if (rootAvailable) SuccessGreen else MaterialTheme.colorScheme.error, CircleShape))
                     }
                     Text(
-                        if (rootAvailable) "الروت متاح — تُطلب الصلاحية عند التفعيل."
-                        else "الروت غير مكتشف — متاحة للهواتف المروّتة فقط.",
+                        if (rootAvailable) tr("الروت متاح — تُطلب الصلاحية عند التفعيل.", "Root is available — permission is requested when enabled.")
+                        else tr("الروت غير مكتشف — متاحة للهواتف المروّتة فقط.", "Root not detected — available only on rooted phones."),
                         style = MaterialTheme.typography.labelSmall,
                         color = if (rootAvailable) SuccessGreen else MaterialTheme.colorScheme.error,
                     )
                     Text(
-                        "تعمل الحماية عند بدء البروكسي فقط، وتُزال عند إيقافه. تمنع UDP والاتصال المباشر عبر TCP خارج البروكسي على IPv4 وIPv6. قد تتوقف المكالمات والألعاب والتطبيقات التي تتجاهل بروكسي النظام.",
+                        tr("تعمل الحماية عند بدء البروكسي فقط، وتُزال عند إيقافه. تمنع UDP والاتصال المباشر عبر TCP خارج البروكسي على IPv4 وIPv6. قد تتوقف المكالمات والألعاب والتطبيقات التي تتجاهل بروكسي النظام.", "Protection runs only while the proxy is active and is removed when it stops. It blocks UDP and direct TCP connections outside the proxy on IPv4 and IPv6. Calls, games, and apps that ignore the system proxy may stop working."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         when {
-                            firewallPending && running -> "الحماية الشبكية نشطة."
-                            firewallPending -> "توجد قواعد حماية تحتاج إلى استعادة."
-                            highProtection -> "جاهزة للاتصال التالي؛ لا توجد قواعد حماية نشطة الآن."
-                            else -> "الحماية غير مفعّلة."
+                            firewallPending && running -> tr("الحماية الشبكية نشطة.", "Network protection is active.")
+                            firewallPending -> tr("توجد قواعد حماية تحتاج إلى استعادة.", "Protection rules need to be restored.")
+                            highProtection -> tr("جاهزة للاتصال التالي؛ لا توجد قواعد حماية نشطة الآن.", "Ready for the next connection; no protection rules are active now.")
+                            else -> tr("الحماية غير مفعّلة.", "Protection is disabled.")
                         },
                         style = MaterialTheme.typography.labelMedium,
                     )
@@ -1718,12 +1769,12 @@ class MainActivity : ComponentActivity() {
                             coroutineScope.launch {
                                 val result = withContext(Dispatchers.IO) { RootWebRtcController.restore(context) }
                                 firewallPending = RootWebRtcController.hasPendingRestore(context)
-                                error = result.exceptionOrNull()?.let { "تعذرت استعادة الشبكة: ${it.message}" }
+                                error = result.exceptionOrNull()?.let { tr("تعذرت استعادة الشبكة: ${it.message}", "Could not restore the network: ${it.message}") }
                                 rootBusy = false
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("استعادة الشبكة وإزالة الحماية السابقة") }
+                    ) { Text(tr("استعادة الشبكة وإزالة الحماية السابقة", "Restore network and remove previous protection")) }
                 }
             }
         }
@@ -1742,44 +1793,44 @@ class MainActivity : ComponentActivity() {
 
         if (featureTab == "advanced") item {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                PageHeading("إعدادات مستقلة", "خيارات متقدمة", "طبّق المنطقة الزمنية أو الموقع الوهمي كخدمة مستقلة عن تشغيل البروكسي.")
+                PageHeading(tr("إعدادات مستقلة", "Independent settings"), tr("خيارات متقدمة", "Advanced options"), tr("طبّق المنطقة الزمنية أو الموقع الوهمي كخدمة مستقلة عن تشغيل البروكسي.", "Apply a time zone or mock location independently of the proxy."))
                 if (!wirelessReady) {
                     AdbRequiredPanel(
                         modifier = Modifier.fillMaxWidth(),
-                        title = "اتصال ADB مطلوب",
-                        description = "فعّل Wireless ADB من تبويب ADB أولًا حتى يستطيع التطبيق تطبيق إعدادات النظام بأمان.",
+                        title = tr("اتصال ADB مطلوب", "ADB connection required"),
+                        description = tr("فعّل Wireless ADB من تبويب ADB أولًا حتى يستطيع التطبيق تطبيق إعدادات النظام بأمان.", "First enable Wireless ADB from the ADB tab so the app can safely apply system settings."),
                         onGoToAdb = onGoToAdb,
                     )
                 }
                 KUNCard {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("المنطقة الزمنية", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("يتم اكتشافها من البروكسي المحفوظ وتطبيقها مؤقتًا على الجهاز. لا تبدأ اتصال النظام.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(tr("المنطقة الزمنية", "Time zone"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(tr("يتم اكتشافها من البروكسي المحفوظ وتطبيقها مؤقتًا على الجهاز. لا تبدأ اتصال النظام.", "Detected from the saved proxy and temporarily applied to the device. This does not start the system connection."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            KUNPrimaryButton("تطبيق المنطقة", onClick = ::applyFeatureTimezone, enabled = wirelessReady && !featureLoading, modifier = Modifier.weight(1f), loading = featureLoading && !AdvancedProxyTimezoneController.hasPendingRestore(context))
-                            KUNSecondaryButton("استعادة الأصلية", onClick = ::restoreFeatureTimezone, enabled = wirelessReady && !featureLoading && AdvancedProxyTimezoneController.hasPendingRestore(context), modifier = Modifier.weight(1f))
+                            KUNPrimaryButton(tr("تطبيق المنطقة", "Apply time zone"), onClick = ::applyFeatureTimezone, enabled = wirelessReady && !featureLoading, modifier = Modifier.weight(1f), loading = featureLoading && !AdvancedProxyTimezoneController.hasPendingRestore(context))
+                            KUNSecondaryButton(tr("استعادة الأصلية", "Restore original"), onClick = ::restoreFeatureTimezone, enabled = wirelessReady && !featureLoading && AdvancedProxyTimezoneController.hasPendingRestore(context), modifier = Modifier.weight(1f))
                         }
                     }
                 }
                 KUNCard {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("محاكاة الموقع", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("اختر البروكسي المحفوظ ثم طبّق الموقع الوهمي. سيبقى مستقلًا عن زر تشغيل البروكسي.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(tr("محاكاة الموقع", "Mock location"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(tr("اختر البروكسي المحفوظ ثم طبّق الموقع الوهمي. سيبقى مستقلًا عن زر تشغيل البروكسي.", "Select the saved proxy, then apply mock location. It remains independent of the proxy start button."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(selected = locationMode == "auto", onClick = { locationMode = "auto" }, label = { Text("موقع البروكسي تلقائيًا") }, enabled = !featureLoading)
-                            FilterChip(selected = locationMode == "manual", onClick = { locationMode = "manual" }, label = { Text("إحداثيات يدوية") }, enabled = !featureLoading)
+                            FilterChip(selected = locationMode == "auto", onClick = { locationMode = "auto" }, label = { Text(tr("موقع البروكسي تلقائيًا", "Automatic proxy location")) }, enabled = !featureLoading)
+                            FilterChip(selected = locationMode == "manual", onClick = { locationMode = "manual" }, label = { Text(tr("إحداثيات يدوية", "Manual coordinates")) }, enabled = !featureLoading)
                         }
                         if (locationMode == "manual") Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(latitude, { latitude = it }, Modifier.weight(1f), label = { Text("خط العرض") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                            OutlinedTextField(longitude, { longitude = it }, Modifier.weight(1f), label = { Text("خط الطول") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                            OutlinedTextField(latitude, { latitude = it }, Modifier.weight(1f), label = { Text(tr("خط العرض", "Latitude")) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Ltr))
+                            OutlinedTextField(longitude, { longitude = it }, Modifier.weight(1f), label = { Text(tr("خط الطول", "Longitude")) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Ltr))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            KUNPrimaryButton("تطبيق الموقع", onClick = ::startIndependentLocation, enabled = selectedSavedProxyId != null && !featureLoading, modifier = Modifier.weight(1f), loading = featureLoading)
-                            KUNSecondaryButton("إيقاف الموقع", onClick = ::stopIndependentLocation, enabled = !featureLoading && (mockLocationAuthorized == true || locationController.isRunning() || FeatureProxyService.isRunning(context)), modifier = Modifier.weight(1f))
+                            KUNPrimaryButton(tr("تطبيق الموقع", "Apply location"), onClick = ::startIndependentLocation, enabled = selectedSavedProxyId != null && !featureLoading, modifier = Modifier.weight(1f), loading = featureLoading)
+                            KUNSecondaryButton(tr("إيقاف الموقع", "Stop location"), onClick = ::stopIndependentLocation, enabled = !featureLoading && (mockLocationAuthorized == true || locationController.isRunning() || FeatureProxyService.isRunning(context)), modifier = Modifier.weight(1f))
                         }
-                        featureStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("تم")) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant) }
-                        Text("قبل التطبيق: اختر البروكسي من تبويب الاتصال، ثم تأكد من اختيار Kun cloak كتطبيق موقع وهمي من خيارات المطوّر.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        OutlinedButton(onClick = ::openMockLocationSettings, modifier = Modifier.fillMaxWidth(), enabled = !featureLoading) { Text("فتح إعداد تطبيق الموقع الوهمي") }
+                        featureStatus?.let { Text(it.text(), style = MaterialTheme.typography.bodySmall, color = if (it.ar.startsWith("تم")) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant) }
+                        Text(tr("قبل التطبيق: اختر البروكسي من تبويب الاتصال، ثم تأكد من اختيار Kun cloak كتطبيق موقع وهمي من خيارات المطوّر.", "Before applying: select a proxy on the Connection tab, then select Kun cloak as the mock location app in Developer options."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(onClick = ::openMockLocationSettings, modifier = Modifier.fillMaxWidth(), enabled = !featureLoading) { Text(tr("فتح إعداد تطبيق الموقع الوهمي", "Open mock location app settings")) }
                     }
                 }
             }
@@ -1790,12 +1841,12 @@ class MainActivity : ComponentActivity() {
                 AdvancedProxyTimezoneController.hasPendingRestore(context) || firewallPending)
         ) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("جلسة سابقة تحتاج إلى استعادة الإعدادات.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("جلسة سابقة تحتاج إلى استعادة الإعدادات.", "Settings from a previous session need to be restored."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedButton(
                     onClick = ::stopAdvanced,
                     enabled = !stopping,
                     modifier = Modifier.fillMaxWidth()
-                ) { Text(if (stopping) "جارٍ الاستعادة…" else "استعادة إعدادات الجلسة السابقة") }
+                ) { Text(if (stopping) tr("جارٍ الاستعادة…", "Restoring…") else tr("استعادة إعدادات الجلسة السابقة", "Restore previous session settings")) }
             }
         }
 
@@ -1822,7 +1873,7 @@ class MainActivity : ComponentActivity() {
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 2,
                         )
-                        ExpandableDetails("تفاصيل المشكلة") {
+                        ExpandableDetails(tr("تفاصيل المشكلة", "Problem details")) {
                             Text(error.orEmpty(), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -1839,7 +1890,7 @@ class MainActivity : ComponentActivity() {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
                 } else {
                     Text(
-                        when { running && mode == "vpn" -> "قطع اتصال VPN"; running -> "إيقاف البروكسي"; mode == "vpn" -> "اتصال"; else -> "بدء بروكسي الجهاز" },
+                        when { running && mode == "vpn" -> tr("قطع اتصال VPN", "Disconnect VPN"); running -> tr("إيقاف البروكسي", "Stop proxy"); mode == "vpn" -> tr("اتصال", "Connect"); else -> tr("بدء بروكسي الجهاز", "Start device proxy") },
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -1847,7 +1898,7 @@ class MainActivity : ComponentActivity() {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.size(8.dp).background(if (running) SuccessGreen else if (starting || checkingEndpoint || stopping) KunPalette.Warning else KunPalette.Muted.copy(alpha = 0.55f), CircleShape))
                 Text(
-                    when { running -> "متصل"; checkingEndpoint -> "جارٍ فحص إمكانية الوصول إلى الخادم…"; starting -> if (mode == "vpn") "بانتظار إذن Android…" else "جارٍ تشغيل البروكسي المحلي…"; stopping -> "جارٍ استعادة الاتصال المباشر…"; else -> "غير متصل" },
+                    when { running -> tr("متصل", "Connected"); checkingEndpoint -> tr("جارٍ فحص إمكانية الوصول إلى الخادم…", "Checking server reachability…"); starting -> if (mode == "vpn") tr("بانتظار إذن Android…", "Waiting for Android permission…") else tr("جارٍ تشغيل البروكسي المحلي…", "Starting local proxy…"); stopping -> tr("جارٍ استعادة الاتصال المباشر…", "Restoring direct connection…"); else -> tr("غير متصل", "Disconnected") },
                     style = MaterialTheme.typography.labelMedium,
                     color = if (running) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.SemiBold,
