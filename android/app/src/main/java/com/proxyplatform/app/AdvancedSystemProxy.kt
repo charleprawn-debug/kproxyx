@@ -28,6 +28,21 @@ internal object AdvancedSystemProxy {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(SNAPSHOT_SAVED, false)
 
+    /** True only when Android points at our loopback proxy and no alternate proxy overrides it. */
+    fun isApplied(context: Context, proxy: String): Boolean = runCatching {
+        read(context, "http_proxy").getOrThrow() == proxy &&
+            proxyCleanupSettings.all { key ->
+                ProxyRestorePolicy.isNoProxy(read(context, key).getOrThrow())
+            }
+    }.getOrDefault(false)
+
+    internal fun isOperational(
+        serviceRunning: Boolean,
+        listenerReady: Boolean,
+        systemProxyMatches: Boolean,
+        protectionRestored: Boolean,
+    ): Boolean = serviceRunning && listenerReady && systemProxyMatches && protectionRestored
+
     /**
      * Emergency recovery used from the login screen. It only removes Android
      * global proxy keys and stops the local proxy service; it never uninstalls

@@ -1170,6 +1170,7 @@ class MainActivity : ComponentActivity() {
 
     fun selectProxyProfile(profile: SavedProxy) {
         if (running || starting || stopping) return
+        error = null
         selectedSavedProxyId = profile.id
         protocol = profile.protocol
         host = profile.host
@@ -1479,14 +1480,34 @@ class MainActivity : ComponentActivity() {
                 setupResult.exceptionOrNull()?.let {
                     AdvancedOperationLog.exception(context, "فشل تشغيل الوضع المتقدم", it)
                 }
-                val restoreResult = withContext(Dispatchers.IO) {
+                val recovery = withContext(Dispatchers.IO) {
                     val proxyRestore = if (AdvancedSystemProxy.hasPendingRestore(context)) {
                         AdvancedSystemProxy.restore(context, "127.0.0.1:${ProxyLocalService.localPort(context)}")
                     } else Result.success(Unit)
                     val firewallRestore = RootWebRtcController.restore(context)
-                    if (proxyRestore.isFailure) proxyRestore else firewallRestore
+                    val expectedProxy = "127.0.0.1:${ProxyLocalService.localPort(context)}"
+                    val serviceRunning = ProxyLocalService.isRunning(context)
+                    val listenerReady = serviceRunning && ProxyLocalService.isListenerReady(context)
+                    val systemProxyMatches = AdvancedSystemProxy.isApplied(context, expectedProxy)
+                    val operational = AdvancedSystemProxy.isOperational(
+                        serviceRunning = serviceRunning,
+                        listenerReady = listenerReady,
+                        systemProxyMatches = systemProxyMatches,
+                        protectionRestored = firewallRestore.isSuccess,
+                    )
+                    Triple(
+                        proxyRestore.isFailure || firewallRestore.isFailure,
+                        operational,
+                        proxyRestore.exceptionOrNull() ?: firewallRestore.exceptionOrNull(),
+                    )
                 }
-                if (restoreResult.isSuccess) {
+                val (restoreFailed, proxyConfirmedActive, restoreFailure) = recovery
+                if (proxyConfirmedActive) {
+                    AdvancedOperationLog.output(context, "تأكدت الخدمة والمنفذ وإعداد بروكسي النظام بعد فشل خطوة غير أساسية؛ اعتُبر الاتصال نشطًا دون عرض خطأ اتصال كاذب.")
+                    running = true
+                    starting = false
+                    error = null
+                } else if (!restoreFailed) {
                     AdvancedOperationLog.info(context, "اكتملت معالجة الاستعادة؛ إيقاف الخدمة المحلية.")
                     ProxyLocalService.stop(context)
                     running = false
@@ -1494,13 +1515,16 @@ class MainActivity : ComponentActivity() {
                     // Keep the loopback listener alive if Android may still
                     // point at it; stopping it could strand all device traffic.
                     running = ProxyLocalService.isRunning(context)
-                }
-                starting = false
-                val cause = setupResult.exceptionOrNull()
-                error = ProxyFailureMessages.connection(advanced = true, details = cause?.message)
-                if (restoreResult.isFailure) {
-                    AdvancedOperationLog.error(context, "فشلت الاستعادة؛ أُبقيت الخدمة المحلية لتفادي انقطاع المرور.")
-                    error += tr("\nتنبيه: لم تكتمل الاستعادة، لذلك أبقينا البروكسي نشطًا لتجنّب قطع المرور. أعد اتصال ADB ثم حاول الاستعادة مجددًا.", "\nWarning: restoration did not complete, so the proxy remains active to avoid interrupting traffic. Reconnect ADB and try restoring again.")
+                    starting = false
+                    val cause = setupResult.exceptionOrNull()
+                    error = ProxyFailureMessages.connection(
+                        advanced = true,
+                        details = cause?.message ?: restoreFailure?.message,
+                    )
+                    AdvancedOperationLog.error(context, "فشلت الاستعادة؛ أُبقيت الخدمة المحلية لتفادي قطع المرور.")
+                    if (running) {
+                        error += tr("\nتنبيه: تعذّر تأكيد إعداد بروكسي النظام أو استعادة الحماية، لذلك أبقينا الخدمة المحلية نشطة لتجنّب قطع المرور. أعد اتصال ADB وحاول الاستعادة مجددًا.", "\nWarning: the system proxy setting or protection restoration could not be verified, so the local service remains active to avoid interrupting traffic. Reconnect ADB and try restoring again.")
+                    }
                 }
             }
         }
