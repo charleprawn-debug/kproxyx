@@ -1051,7 +1051,7 @@ class MainActivity : ComponentActivity() {
         password = profile.password
         coroutineScope.launch {
             runCatching { withContext(Dispatchers.IO) { profileStore.select(profile.id); api.selectSavedProxy(profile.id) } }
-                .onFailure { error = ProxyFailureMessages.savedProxy(it.message, "حفظ اختيار البروكسي") }
+                .onFailure { AdvancedOperationLog.exception(context, "تعذرت مزامنة اختيار البروكسي بالخادم؛ بقي الاختيار المحلي متاحًا للاتصال.", it) }
         }
     }
 
